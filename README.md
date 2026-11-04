@@ -6,7 +6,7 @@ Lightweight native Linux YouTube Music player with the existing GTK UI and timed
 
 On this PC, search **Ember** in your app menu. The installed copy lives in `~/.local/share/ember-player/`; source changes must be copied there to update it. Settings remain in `~/.config/ember-player/`.
 
-From this checkout: `./run.sh`. Requires system Python/PyGObject, GTK4, Pycairo, GStreamer playback/codec plugins, Node.js (for yt-dlp JavaScript support), and uv. Requirements install into a system-site-packages venv. If updating an existing venv, run `uv pip install --python .venv/bin/python -r requirements.txt`.
+From this checkout: `bash run.sh`. Requires system Python/PyGObject, GTK4, Pycairo, GStreamer playback/codec plugins, Node.js (for yt-dlp JavaScript support), and uv. Requirements install into a system-site-packages venv. If updating an existing venv, run `uv pip install --python .venv/bin/python -r requirements.txt`.
 
 ## Music
 
