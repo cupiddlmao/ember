@@ -1,0 +1,16 @@
+engine/target/
+__pycache__/
+*.pyc
+.env
+*.log
+.freebuff/
+.venv/
+reports/GG-review.*
+.cloud-attachments/
+.env.*
+*auth*.json
+*session*.json
+*transfer-state*.json
+*review*.json
+*library*.json
+settings.json
