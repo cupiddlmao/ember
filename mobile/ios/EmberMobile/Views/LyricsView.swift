@@ -21,7 +21,6 @@ struct LyricsView: View {
                 ZStack(alignment: .bottom) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 18) {
-                            header
                             content
                             footer
                         }
@@ -72,6 +71,12 @@ struct LyricsView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+                .padding(.horizontal, 26)
+                .padding(.vertical, 14)
+                .background(EmberTheme.background.opacity(0.95))
+        }
         .preferredColorScheme(.dark)
         .task(id: retryToken) {
             await loadLyrics()
@@ -80,18 +85,6 @@ struct LyricsView: View {
 
     private var backdrop: some View {
         ZStack {
-            if let url = track.artworkUrl {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } placeholder: {
-                    Color.clear
-                }
-                .blur(radius: 70)
-                .opacity(0.38)
-                .ignoresSafeArea()
-            }
             LinearGradient(
                 colors: [
                     Color.black.opacity(0.55),
@@ -202,6 +195,7 @@ struct LyricsView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Seek to \(line.text)")
+                        .disabled(!model.isCurrentTrackLoaded || model.queue.current?.track.id != track.id)
                     } else {
                         lineLabel(line, index: index)
                     }
@@ -297,6 +291,9 @@ struct LyricsView: View {
             guard !Task.isCancelled else { return }
             lyrics = result
             updateActive(player.currentTime)
+        } catch APIError.server(404, _) {
+            guard !Task.isCancelled else { return }
+            errorMessage = "This server does not have the lyrics endpoint. Update the Ember backend to version 0.2.0 or later."
         } catch is CancellationError {
             return
         } catch {
