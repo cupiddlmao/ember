@@ -8,7 +8,7 @@ struct NowPlayingView: View {
     @State private var isScrubbing = false
     @State private var scrubTime: Double = 0
     @State private var showingQueue = false
-    @State private var showingLyrics = false
+    @State private var lyricsTrack: Track?
 
     var body: some View {
         ZStack {
@@ -46,12 +46,11 @@ struct NowPlayingView: View {
             QueueView()
                 .environmentObject(model)
         }
-        .fullScreenCover(isPresented: $showingLyrics) {
-            if let track = model.queue.current?.track {
-                LyricsView(track: track, player: player)
-                    .environmentObject(model)
-                    .id(track.id)
-            }
+        .sheet(item: $lyricsTrack) { track in
+            LyricsView(track: track, player: player)
+                .environmentObject(model)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -64,7 +63,7 @@ struct NowPlayingView: View {
             Spacer()
             HStack(spacing: 8) {
                 Button {
-                    showingLyrics = true
+                    lyricsTrack = model.queue.current?.track
                 } label: {
                     Image(systemName: "quote.bubble.fill")
                         .font(.system(size: 14, weight: .semibold))
