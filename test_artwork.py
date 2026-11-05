@@ -1,6 +1,7 @@
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 import artwork
 
@@ -9,6 +10,7 @@ class ArtworkTests(unittest.TestCase):
     def test_https_host_allowlist(self):
         allowed = (
             "https://i.ytimg.com/vi/dm4tkSNKfFI/hqdefault.jpg",
+            "https://img.youtube.com/vi/dm4tkSNKfFI/mqdefault.jpg",
             "https://yt3.googleusercontent.com/example=w120-h120",
             "https://lh3.googleusercontent.com/example=w544-h544",
         )
@@ -26,6 +28,19 @@ class ArtworkTests(unittest.TestCase):
         )
         for url in rejected:
             self.assertIsNone(artwork.artwork_url(url), repr(url))
+
+    def test_i_ytimg_uses_img_youtube_fallback(self):
+        self.assertEqual(
+            artwork.alternate_artwork_url("https://i.ytimg.com/vi/dm4tkSNKfFI/mqdefault.jpg"),
+            "https://img.youtube.com/vi/dm4tkSNKfFI/mqdefault.jpg",
+        )
+        self.assertIsNone(artwork.alternate_artwork_url("https://img.youtube.com/vi/dm4tkSNKfFI/mqdefault.jpg"))
+
+    def test_failed_primary_download_retries_img_youtube(self):
+        with patch("artwork._download", side_effect=[urllib.error.URLError("blocked"), b"image"]) as fetch:
+            result = artwork.download_artwork("https://i.ytimg.com/vi/dm4tkSNKfFI/mqdefault.jpg")
+        self.assertEqual(result, b"image")
+        self.assertEqual(fetch.call_args_list[1].args[0], "https://img.youtube.com/vi/dm4tkSNKfFI/mqdefault.jpg")
 
     def test_redirect_targets_are_revalidated(self):
         request = urllib.request.Request("https://i.ytimg.com/vi/dm4tkSNKfFI/hqdefault.jpg")

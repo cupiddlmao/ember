@@ -29,6 +29,13 @@ class AppRegressions(unittest.TestCase):
         Ember.load_artwork(fake, 'https://i.ytimg.com/current.jpg', lambda t: None)
         self.assertEqual(fake.art_queue.get()[2][0], 'https://i.ytimg.com/current.jpg')
 
+    def test_cached_cover_applies_before_row_is_parented(self):
+        widget = MagicMock()
+        widget.get_root.return_value = None
+        texture = object()
+        Ember.art_callback(SimpleNamespace(), widget)(texture)
+        widget.set_texture.assert_called_once_with(texture)
+
     def test_retiring_tracks_preserves_saved_covers(self):
         tracks, saved = object(), object()
         fake = SimpleNamespace(art_lock=threading.RLock(), art_waiters={('url', 80): [(None, tracks), (None, saved)]})
@@ -65,6 +72,43 @@ class AppRegressions(unittest.TestCase):
             Ember.play_track(fake, track)
         resolve.assert_not_called()
         fake.start_audio.assert_called_once_with(track, cached['path'].as_uri(), 'download')
+
+    def test_playlist_cover_choice_saves_scaled_png(self):
+        playlist_id = "PL1234567890"
+        fake = SimpleNamespace(
+            playlist_cover_dialog=object(),
+            playlist_covers={},
+            playlist_meta={"id": playlist_id},
+            visible_tracks=[],
+            playlist_unavailable=0,
+            refresh_playlist_cover=MagicMock(),
+        )
+        dialog = MagicMock()
+        selected = MagicMock()
+        selected.get_path.return_value = "/tmp/cover.jpg"
+        dialog.open_finish.return_value = selected
+        pixbuf = MagicMock()
+        pixbuf.save_to_bufferv.return_value = (True, b"png")
+        with patch('app.GdkPixbuf.Pixbuf.new_from_file_at_scale', return_value=pixbuf) as scale, \
+             patch('app.playlist_covers.write', return_value={playlist_id: f"{playlist_id}.png"}) as write:
+            Ember.playlist_cover_chosen(fake, dialog, None, playlist_id)
+        scale.assert_called_once_with("/tmp/cover.jpg", 512, 512, True)
+        write.assert_called_once_with(playlist_id, b"png")
+        self.assertIsNone(fake.playlist_cover_dialog)
+        fake.refresh_playlist_cover.assert_called_once_with(playlist_id)
+
+    def test_lastfm_track_fields(self):
+        track = {
+            "name": "Awake",
+            "artists": [{"name": "Tycho"}],
+            "album": {"name": "Awake"},
+            "duration_ms": 284000,
+        }
+        self.assertEqual(
+            Ember.lastfm_track_fields(SimpleNamespace(), track),
+            {"artist": "Tycho", "track": "Awake", "album": "Awake", "duration": 284},
+        )
+        self.assertIsNone(Ember.lastfm_track_fields(SimpleNamespace(), {"name": "", "artists": []}))
 
     def test_root_media_capabilities(self):
         media = object.__new__(Mpris)

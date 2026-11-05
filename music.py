@@ -106,7 +106,7 @@ def normalize(item):
     artists = item.get('artists') or [{'name': item.get('artist') or item.get('uploader') or 'Unknown artist'}]
     images = item.get('thumbnails') or ([{'url': item['thumbnail']}] if item.get('thumbnail') else [])
     if not images:
-        images = [{'url': 'https://i.ytimg.com/vi/' + str(video) + '/mqdefault.jpg'}]
+        images = [{'url': 'https://img.youtube.com/vi/' + str(video) + '/mqdefault.jpg'}]
     return {
         'source': 'youtube',
         'type': 'track',
