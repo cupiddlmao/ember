@@ -10,7 +10,7 @@ struct RootView: View {
             if model.isRestoring {
                 SplashView()
             } else if model.isConnected {
-                SearchView(player: model.player)
+                SignedInView()
             } else {
                 ConnectionView()
             }
@@ -46,6 +46,37 @@ struct RootView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+}
+
+private struct SignedInView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var selectedTab = 0
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            SearchView()
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tag(0)
+
+            LibraryView()
+                .tabItem {
+                    Label("Library", systemImage: "music.note.list")
+                }
+                .tag(1)
+        }
+        .tint(EmberTheme.pink)
+        .toolbarBackground(EmberTheme.background, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if model.queue.current != nil {
+                MiniPlayerBar(player: model.player)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: model.player.track?.id)
     }
 }
 

@@ -20,13 +20,19 @@ final class AppModel: ObservableObject {
     @Published private(set) var connectionError: String?
     @Published private(set) var errorMessage: String?
     @Published private(set) var preparingTrackID: String?
+    @Published private(set) var preparingEntryID: UUID?
+    @Published private(set) var queue = PlaybackQueue()
+    @Published private(set) var savedPlaylists: [SavedPlaylist] = []
     @Published var activeSheet: Sheet?
 
     let player = PlayerController()
 
-    @Published private(set) var client: APIClient?
+    @Published private(set) var client: APIClient? = nil
     private var searchTask: Task<Void, Never>?
     private var preparationTask: Task<Void, Never>?
+    private var prefetchTask: Task<Void, Never>?
+    private var playbackGate = PlaybackGate()
+    private var playingEntryID: UUID?
     private var didRestore = false
 
     private static let serverURLKey = "ember.server.url"
@@ -34,10 +40,48 @@ final class AppModel: ObservableObject {
     init() {
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? ""
         accessKey = ""
+        savedPlaylists = PlaylistStore.load()
+        player.onTrackEnded = { [weak self] in
+            self?.advanceQueueAfterEnd()
+        }
+        player.onPlaybackFailed = { [weak self] message in
+            self?.handlePlaybackFailure(message)
+        }
+        player.onNext = { [weak self] in
+            self?.playNextTrack()
+        }
+        player.onPrevious = { [weak self] in
+            self?.playPreviousTrack()
+        }
+        player.onPauseRequested = { [weak self] in
+            self?.cancelPreparation()
+        }
+        player.isPreparingPlayback = { [weak self] in
+            self?.preparingEntryID != nil
+        }
+        player.onResumeRequested = { [weak self] in
+            guard let self, let entry = self.queue.current else { return false }
+            if self.preparingEntryID != nil { return true }
+            guard self.playingEntryID != entry.id || self.player.state == .failed else { return false }
+            self.beginPlayback(entry, presentPlayer: false)
+            return true
+        }
     }
 
     var isConnected: Bool {
         client != nil
+    }
+
+    var currentQueueEntry: QueueEntry? {
+        queue.current
+    }
+
+    var isCurrentTrackLoaded: Bool {
+        queue.currentID != nil && playingEntryID == queue.currentID
+    }
+
+    var isPlaybackActive: Bool {
+        preparingEntryID != nil || (isCurrentTrackLoaded && (player.state == .playing || player.state == .loading))
     }
 
     func restoreSession() async {
@@ -92,10 +136,17 @@ final class AppModel: ObservableObject {
 
     func disconnect() {
         searchTask?.cancel()
+        searchTask = nil
         preparationTask?.cancel()
         preparationTask = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        playbackGate.next()
         preparingTrackID = nil
+        preparingEntryID = nil
         player.stop()
+        playingEntryID = nil
+        queue.removeAll()
         client = nil
         results = []
         searchText = ""
@@ -130,31 +181,251 @@ final class AppModel: ObservableObject {
     }
 
     func play(_ track: Track) {
-        guard let api = client else { return }
-        preparationTask?.cancel()
+        guard client != nil else { return }
+        let entry = queue.start(track: track)
+        beginPlayback(entry, presentPlayer: true)
+    }
+
+    func play(tracks: [Track], startingAt index: Int) {
+        guard client != nil, !tracks.isEmpty else { return }
+        guard let entry = queue.replace(tracks: tracks, startingAt: index) else { return }
+        beginPlayback(entry, presentPlayer: true)
+    }
+
+    func playAll(_ tracks: [Track]) {
+        play(tracks: tracks, startingAt: 0)
+    }
+
+    func shufflePlay(_ tracks: [Track]) {
+        play(tracks: tracks.shuffled(), startingAt: 0)
+    }
+
+    func playNext(_ track: Track) {
+        guard client != nil else { return }
+        let wasIdle = queue.currentID == nil
+        let entry = queue.playNext(track)
+        if wasIdle {
+            beginPlayback(entry, presentPlayer: true)
+        } else {
+            restartPrefetch()
+        }
+    }
+
+    func addToQueue(_ track: Track) {
+        guard client != nil else { return }
+        let wasIdle = queue.currentID == nil
+        let entry = queue.append(track)
+        if wasIdle {
+            beginPlayback(entry, presentPlayer: true)
+        } else {
+            restartPrefetch()
+        }
+    }
+
+    func playQueueEntry(_ entry: QueueEntry) {
+        guard client != nil, let selected = queue.select(id: entry.id) else { return }
+        beginPlayback(selected, presentPlayer: true)
+    }
+
+    func playNextTrack() {
+        guard let entry = queue.advanceAfterEnd() else { return }
+        beginPlayback(entry, presentPlayer: false)
+    }
+
+    func playPreviousTrack() {
+        if isCurrentTrackLoaded, player.currentTime > 4 {
+            player.seek(to: 0)
+            return
+        }
+        guard let entry = queue.previous() else {
+            player.seek(to: 0)
+            return
+        }
+        beginPlayback(entry, presentPlayer: false)
+    }
+
+    func removeUpcoming(_ entry: QueueEntry) {
+        if queue.removeUpcoming(id: entry.id) {
+            restartPrefetch()
+        }
+    }
+
+    func moveUpcoming(_ entry: QueueEntry, offset: Int) {
+        if queue.moveUpcoming(id: entry.id, offset: offset) {
+            restartPrefetch()
+        }
+    }
+
+    func clearUpcoming() {
+        queue.clearUpcoming()
+        restartPrefetch()
+    }
+
+    func addPlaylist(_ summary: PlaylistSummary) {
+        let saved = SavedPlaylist(summary: summary)
+        var updated = savedPlaylists.filter { $0.id != saved.id }
+        updated.insert(saved, at: 0)
+        updated = Array(updated.prefix(200))
+        do {
+            try PlaylistStore.save(updated)
+            savedPlaylists = updated
+        } catch {
+            errorMessage = "Could not save this playlist on the iPhone."
+        }
+    }
+
+    func removePlaylist(_ playlist: SavedPlaylist) {
+        let updated = savedPlaylists.filter { $0.id != playlist.id }
+        do {
+            try PlaylistStore.save(updated)
+            savedPlaylists = updated
+        } catch {
+            errorMessage = "Could not update the saved playlist library."
+        }
+    }
+
+    func isSavedPlaylist(_ summary: PlaylistSummary) -> Bool {
+        savedPlaylists.contains { $0.id == summary.id }
+    }
+
+    func previewPlaylist(url: String) async throws -> PlaylistPage {
+        guard let api = client else {
+            throw APIError.invalidConfiguration("Connect to your Ember server first.")
+        }
+        let value = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw APIError.invalidConfiguration("Paste a public or unlisted YouTube Music playlist link.")
+        }
+        return try await api.previewPlaylist(url: value)
+    }
+
+    func playlistPage(id: String, offset: Int, limit: Int = 100) async throws -> PlaylistPage {
+        guard let api = client else {
+            throw APIError.invalidConfiguration("Connect to your Ember server first.")
+        }
+        return try await api.playlistPage(playlistID: id, offset: offset, limit: limit)
+    }
+
+    func lyrics(for track: Track) async throws -> LyricsResponse {
+        guard let api = client else {
+            throw APIError.invalidConfiguration("Connect to your Ember server first.")
+        }
+        return try await api.lyrics(for: track)
+    }
+
+    func clearError() {
         errorMessage = nil
-        preparingTrackID = track.id
+    }
+
+    private func beginPlayback(_ entry: QueueEntry, presentPlayer: Bool) {
+        guard let api = client else { return }
+        player.pause()
+        playingEntryID = nil
+        preparationTask?.cancel()
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        let token = playbackGate.next()
+        preparingTrackID = entry.track.id
+        preparingEntryID = entry.id
+        errorMessage = nil
+
+        let protected = Set([player.track?.id, Optional(entry.track.id)].compactMap { $0 })
         preparationTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let fileURL = try await api.downloadAudio(for: track, protecting: self.player.track?.id)
-                guard !Task.isCancelled, self.client != nil else {
+                let fileURL = try await api.downloadAudio(
+                    for: entry.track,
+                    protectingTrackIDs: protected
+                )
+                guard !Task.isCancelled,
+                      self.playbackGate.accepts(token),
+                      self.queue.currentID == entry.id,
+                      self.client != nil else {
                     return
                 }
                 self.preparingTrackID = nil
-                self.player.play(track: track, fileURL: fileURL)
-                self.activeSheet = .nowPlaying
+                self.preparingEntryID = nil
+                self.playingEntryID = entry.id
+                self.player.play(track: entry.track, fileURL: fileURL)
+                if presentPlayer {
+                    self.activeSheet = .nowPlaying
+                }
+                self.startPrefetch()
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      self.playbackGate.accepts(token),
+                      self.queue.currentID == entry.id else {
+                    return
+                }
                 self.preparingTrackID = nil
+                self.preparingEntryID = nil
+                self.player.stop()
+                self.playingEntryID = nil
                 self.errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? "Could not play this track."
             }
         }
     }
 
-    func clearError() {
-        errorMessage = nil
+    private func cancelPreparation() {
+        guard preparingEntryID != nil else { return }
+        playbackGate.next()
+        preparationTask?.cancel()
+        preparationTask = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        preparingTrackID = nil
+        preparingEntryID = nil
+    }
+
+    private func advanceQueueAfterEnd() {
+        guard isCurrentTrackLoaded, preparingEntryID == nil else { return }
+        guard let entry = queue.advanceAfterEnd() else {
+            return
+        }
+        beginPlayback(entry, presentPlayer: false)
+    }
+
+    private func handlePlaybackFailure(_ message: String) {
+        preparingTrackID = nil
+        preparingEntryID = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        errorMessage = message
+    }
+
+    private func restartPrefetch() {
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        if queue.current != nil {
+            startPrefetch()
+        }
+    }
+
+    private func startPrefetch() {
+        guard let api = client, let currentIndex = queue.currentIndex else { return }
+        let candidates = Array(queue.entries.dropFirst(currentIndex + 1).prefix(2))
+        guard !candidates.isEmpty else { return }
+        let token = playbackGate.value
+        let currentID = queue.currentID
+        let protected = Set(
+            ([queue.current?.track.id] + candidates.map { Optional($0.track.id) }).compactMap { $0 }
+        )
+        prefetchTask = Task { [weak self] in
+            for candidate in candidates {
+                guard let self,
+                      !Task.isCancelled,
+                      self.playbackGate.accepts(token),
+                      self.queue.currentID == currentID,
+                      self.client != nil else {
+                    return
+                }
+                _ = try? await api.downloadAudio(
+                    for: candidate.track,
+                    protectingTrackIDs: protected
+                )
+            }
+        }
     }
 
     private func performSearch(_ query: String) async {
@@ -195,7 +466,7 @@ final class AppModel: ObservableObject {
               components.fragment == nil,
               let url = components.url else {
             throw APIError.invalidConfiguration(
-                "Enter an HTTPS address such as https://ember.your-tailnet.ts.net."
+                "Enter an HTTPS address such as https://ember.your-tailnet.ts.net/ember."
             )
         }
         return url

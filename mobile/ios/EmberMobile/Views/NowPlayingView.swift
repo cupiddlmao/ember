@@ -7,6 +7,8 @@ struct NowPlayingView: View {
 
     @State private var isScrubbing = false
     @State private var scrubTime: Double = 0
+    @State private var showingQueue = false
+    @State private var showingLyrics = false
 
     var body: some View {
         ZStack {
@@ -16,7 +18,7 @@ struct NowPlayingView: View {
                 topBar
                 Spacer(minLength: 8)
 
-                if let track = player.track {
+                if let track = model.queue.current?.track {
                     artwork(track)
                     details(track)
                     progress
@@ -40,6 +42,17 @@ struct NowPlayingView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingQueue) {
+            QueueView()
+                .environmentObject(model)
+        }
+        .fullScreenCover(isPresented: $showingLyrics) {
+            if let track = model.queue.current?.track {
+                LyricsView(track: track, player: player)
+                    .environmentObject(model)
+                    .id(track.id)
+            }
+        }
     }
 
     private var topBar: some View {
@@ -49,17 +62,47 @@ struct NowPlayingView: View {
                 .tracking(2.2)
                 .foregroundStyle(EmberTheme.faintText)
             Spacer()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(Circle())
+            HStack(spacing: 8) {
+                Button {
+                    showingLyrics = true
+                } label: {
+                    Image(systemName: "quote.bubble.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Lyrics")
+                .disabled(!model.isCurrentTrackLoaded)
+
+                Button {
+                    showingQueue = true
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Queue")
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close player")
             }
-            .buttonStyle(.plain)
         }
         .padding(.top, 18)
     }
@@ -116,6 +159,7 @@ struct NowPlayingView: View {
                 }
             )
             .tint(EmberTheme.pink)
+            .disabled(!model.isCurrentTrackLoaded)
 
             HStack {
                 Text(Track.format(isScrubbing ? scrubTime : player.currentTime))
@@ -129,15 +173,28 @@ struct NowPlayingView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 42) {
+        HStack(spacing: 22) {
+            Button {
+                model.playPreviousTrack()
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 40, height: 48)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Previous track")
+
             Button {
                 player.seek(to: max(0, player.currentTime - 15))
             } label: {
                 Image(systemName: "gobackward.15")
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Back 15 seconds")
+            .disabled(!model.isCurrentTrackLoaded)
 
             Button {
                 player.togglePlayPause()
@@ -147,31 +204,45 @@ struct NowPlayingView: View {
                         .fill(EmberTheme.accentGradient)
                         .frame(width: 76, height: 76)
                         .shadow(color: EmberTheme.pink.opacity(0.35), radius: 18, y: 6)
-                    Image(systemName: player.state == .playing ? "pause.fill" : "play.fill")
+                    Image(systemName: model.isPlaybackActive ? "pause.fill" : "play.fill")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(Color.black.opacity(0.8))
-                        .offset(x: player.state == .playing ? 0 : 2)
+                        .offset(x: model.isPlaybackActive ? 0 : 2)
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(model.isPlaybackActive ? "Pause" : "Play or retry selected track")
 
             Button {
                 player.seek(to: min(player.duration, player.currentTime + 15))
             } label: {
                 Image(systemName: "goforward.15")
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Forward 15 seconds")
+            .disabled(!model.isCurrentTrackLoaded)
+
+            Button {
+                model.playNextTrack()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 40, height: 48)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Next track")
         }
-        .padding(.top, 12)
+        .padding(.top, 10)
     }
 
     private var footer: some View {
         HStack(spacing: 7) {
             Image(systemName: "lock.fill")
                 .font(.system(size: 9))
-            Text("Private playback from your Ember server")
+            Text("Private playback · \(model.queue.upcoming.count) queued")
                 .font(.system(size: 11))
         }
         .foregroundStyle(EmberTheme.faintText)
