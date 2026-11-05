@@ -78,7 +78,7 @@ def fetch_lyrics(track_id, key):
     if not re.fullmatch(r"[A-Za-z0-9]{22}", track_id):
         raise ValueError("Invalid Spotify track ID")
     if not key:
-        raise ValueError("Add your Spicy Lyrics key in Settings, or import a TTML/LRC file.")
+        raise ValueError("Lyrics lookup is unavailable.")
     payload = request_json("https://api.spicylyrics.org/v1/lyrics/" + track_id, headers={"Authorization": "Bearer " + key})
     if payload.get("Status") != 200:
         raise ValueError("No usable lyrics returned by provider")
@@ -99,7 +99,7 @@ def metadata_lyrics(track):
         return parse_lrc(payload["syncedLyrics"]), {"source": "lrclib"}
     if payload.get("plainLyrics"):
         return [Line(row, -1, -1) for row in payload["plainLyrics"].splitlines()], {"source": "lrclib"}
-    raise ValueError("No lyrics matched this recording. Import a TTML/LRC file for word timing.")
+    raise ValueError("No lyrics matched this recording.")
 
 
 def parse_lrc(text):
