@@ -14,3 +14,12 @@ reports/GG-review.*
 *review*.json
 *library*.json
 settings.json
+screenshots/
+
+# Runtime audio cache and offline downloads (never commit media)
+downloads/
+audio/
+*.part
+*.sqlite3
+*.sqlite3-*
+*.db
