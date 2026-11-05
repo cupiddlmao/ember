@@ -76,7 +76,7 @@ class MusicTests(unittest.TestCase):
         self.assertEqual(normalize({'id': 'dm4tkSNKfFI', 'artists': ['Tycho']})['artists'], [{'name': 'Tycho'}])
         fallback = normalize({'videoId': 'dm4tkSNKfFI', 'title': 'Awake', 'artists': [{'name': 'Dance Gavin Dance - Topic'}]})
         self.assertEqual(fallback['artists'], [{'name': 'Dance Gavin Dance'}])
-        self.assertEqual(fallback['album']['images'][0]['url'], 'https://i.ytimg.com/vi/dm4tkSNKfFI/mqdefault.jpg')
+        self.assertEqual(fallback['album']['images'][0]['url'], 'https://img.youtube.com/vi/dm4tkSNKfFI/mqdefault.jpg')
 
     def test_song_search_and_playlist_metadata(self):
         api = MagicMock()

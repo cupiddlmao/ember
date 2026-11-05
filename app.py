@@ -28,6 +28,8 @@ from audio_cache import STORE as audio_store
 from generations import RequestGenerations
 import youtube_auth
 import disk_cache
+import playlist_covers
+import lastfm
 from playlists import add as add_saved_playlist, load as load_saved_playlists, remove as remove_saved_playlist, save as save_saved_playlists, clean as clean_playlist
 from services import Spotify, DATA, load_private, save_private
 from mpris import Mpris
@@ -141,7 +143,7 @@ def track_images(track):
         return images
     video = str(track.get("id") or "")
     if re.fullmatch(r"[\w-]{11}", video, flags=re.ASCII):
-        return [{"url": f"https://i.ytimg.com/vi/{video}/mqdefault.jpg"}]
+        return [{"url": f"https://img.youtube.com/vi/{video}/mqdefault.jpg"}]
     return []
 
 
@@ -211,6 +213,10 @@ class Ember(Gtk.Application):
         self.spotify = Spotify()
         self.saved_tracks = load_private(DATA / "youtube-library.json").get("tracks", [])
         self.saved_playlists = load_saved_playlists(PLAYLISTS_FILE)
+        self.playlist_covers = playlist_covers.load()
+        self.playlist_cover_dialog = None
+        self.lastfm_config = lastfm.load()
+        self.lastfm_current = None
         self.account_playlists = []
         self.account_loading = False
         self.audio = Audio(self.audio_event)
@@ -336,6 +342,7 @@ class Ember(Gtk.Application):
             self.mpris = None
             self.status("Desktop media controls unavailable; in-app controls still work.")
         GLib.timeout_add(50, self.tick)
+        GLib.timeout_add(1000, self.lastfm_tick)
 
     def show_page(self, name):
         self.pages.set_visible_child_name(name)
@@ -506,7 +513,7 @@ class Ember(Gtk.Application):
         banner.connect("clicked", lambda *_: self.open_liked())
         return banner
 
-    def shelf_card(self, title, subtitle, callback, images=None, scope=None):
+    def shelf_card(self, title, subtitle, callback, images=None, scope=None, playlist_id=None):
         card = Gtk.Button()
         card.add_css_class("shelf-card")
         card.set_tooltip_text(title)
@@ -546,7 +553,7 @@ class Ember(Gtk.Application):
         content.append(caption)
         card.set_child(content)
         card.connect("clicked", lambda *_: callback())
-        self.load_cover(art, images, scope)
+        self.load_cover(art, images, scope, playlist_id)
         return card
 
     def playlist_row(self, item):
@@ -565,7 +572,7 @@ class Ember(Gtk.Application):
         row.set_child(content)
         row.connect("clicked", lambda *_: self.open_playlist(item))
         self.playlist_rows[item["id"]] = row
-        self.load_cover(art, item.get("images") or [], self.saved_art_scope)
+        self.load_cover(art, item.get("images") or [], self.saved_art_scope, item["id"])
         return row
 
     def open_playlist(self, item):
@@ -885,14 +892,28 @@ class Ember(Gtk.Application):
                 else:
                     del self.art_waiters[key]
 
-    def load_cover(self, widget, images, scope=None):
+    def load_custom_cover(self, widget, playlist_id):
+        path = playlist_covers.path_for(playlist_id, self.playlist_covers)
+        if path is None:
+            return False
+        try:
+            size = widget.target
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), size, size, True)
+            widget.set_texture(Gdk.Texture.new_for_pixbuf(pixbuf))
+        except Exception:
+            return False
+        return True
+
+    def load_cover(self, widget, images, scope=None, playlist_id=None):
+        if playlist_id and self.load_custom_cover(widget, playlist_id):
+            return
         target = widget.target
         self.load_artwork(best_image(images, target), self.art_callback(widget), target, scope)
 
     def art_callback(self, widget):
         def apply(texture):
-            if widget.get_root() is not None:
-                widget.set_texture(texture)
+            # Cached artwork is delivered before a freshly built row is parented.
+            widget.set_texture(texture)
         return apply
 
     def build_playlist_panel(self):
@@ -914,11 +935,18 @@ class Ember(Gtk.Application):
         self.playlist_play = button("Play", self.play_playlist, "accent")
         self.playlist_shuffle = button("Shuffle", self.shuffle_playlist, "ghost-button")
         self.playlist_save = button("Save playlist", self.toggle_playlist_save, "ghost-button")
+        self.playlist_cover = button("Set cover", self.choose_playlist_cover, "ghost-button")
+        self.playlist_cover.set_tooltip_text("Choose a local image for this playlist")
+        self.playlist_cover.set_sensitive(False)
+        self.playlist_cover_reset = button("Reset cover", self.clear_playlist_cover, "text-button")
+        self.playlist_cover_reset.set_visible(False)
         self.playlist_play.set_sensitive(False)
         self.playlist_shuffle.set_sensitive(False)
         actions.append(self.playlist_play)
         actions.append(self.playlist_shuffle)
         actions.append(self.playlist_save)
+        actions.append(self.playlist_cover)
+        actions.append(self.playlist_cover_reset)
         info.append(actions)
         panel.append(info)
         return panel
@@ -1181,6 +1209,124 @@ class Ember(Gtk.Application):
         box.append(label("To connect or renew login, run .venv/bin/python import_youtube_auth.py in the project folder. Paste credentials only into its hidden local prompt. Browser authentication is unofficial and can expire. Removing the local login file disconnects account access.", "settings-copy", wrap=True))
         box.append(label("Saved on this device", "settings-heading"))
         box.append(label("Liked Songs and saved playlists are local metadata. They are not synced to a Google account.", "settings-copy", wrap=True))
+        box.append(label("Last.fm scrobbling", "settings-heading"))
+        box.append(label("Send now-playing updates and scrobble tracks after Last.fm's listening threshold. Create a Last.fm API account, then paste its API key and shared secret. The shared secret, authorization token and session key are stored in a private local file.", "settings-copy", wrap=True))
+        lastfm_link = Gtk.LinkButton(uri="https://www.last.fm/api/account/create", label="Create or manage a Last.fm API account")
+        lastfm_link.add_css_class("link-button")
+        lastfm_link.set_halign(Gtk.Align.START)
+        box.append(lastfm_link)
+        box.append(label("API key", "field-label"))
+        lastfm_key = Gtk.Entry(placeholder_text="Last.fm API key")
+        lastfm_key.set_text(self.lastfm_config.get("api_key", ""))
+        box.append(lastfm_key)
+        box.append(label("Shared secret", "field-label"))
+        lastfm_secret = Gtk.PasswordEntry(show_peek_icon=True)
+        lastfm_secret.set_text(self.lastfm_config.get("api_secret", ""))
+        box.append(lastfm_secret)
+        lastfm_feedback = label("", "settings-feedback", wrap=True)
+        box.append(lastfm_feedback)
+        lastfm_actions = Gtk.Box(spacing=8)
+        lastfm_actions.set_halign(Gtk.Align.START)
+
+        def refresh_lastfm():
+            config = self.lastfm_config
+            is_connected = lastfm.connected(config)
+            if is_connected:
+                lastfm_feedback.set_text("Connected as " + config.get("username", "Last.fm user") + ".")
+            elif config.get("token"):
+                lastfm_feedback.set_text("Authorization pending. Approve Ember in the browser, then click Complete connection.")
+            else:
+                lastfm_feedback.set_text("Not connected. Enter your Last.fm API credentials.")
+            connect_lastfm.set_label("Reconnect" if config.get("api_key") else "Connect Last.fm")
+            connect_lastfm.set_sensitive(True)
+            complete_lastfm.set_sensitive(bool(config.get("token")) and not is_connected)
+            disconnect_lastfm.set_visible(is_connected)
+            open_lastfm.set_sensitive(bool(config.get("token")))
+
+        def open_authorization():
+            config = self.lastfm_config
+            if not config.get("api_key") or not config.get("token"):
+                lastfm_feedback.set_text("Connect Last.fm first to create an authorization token.")
+                return
+            try:
+                Gio.AppInfo.launch_default_for_uri(lastfm.authorize_url(config["api_key"], config["token"]), None)
+            except GLib.Error:
+                lastfm_feedback.set_text("Could not open the browser. Try the authorization button again.")
+
+        def connect_lastfm_clicked():
+            api_key = lastfm_key.get_text().strip()
+            secret = lastfm_secret.get_text().strip()
+            if not api_key or not secret:
+                lastfm_feedback.set_text("Enter both your Last.fm API key and shared secret.")
+                return
+            connect_lastfm.set_sensitive(False)
+            lastfm_feedback.set_text("Requesting a Last.fm authorization token…")
+            def done(token):
+                try:
+                    self.lastfm_config = lastfm.save({"api_key": api_key, "api_secret": secret, "token": token})
+                except OSError:
+                    lastfm_feedback.set_text("Could not save Last.fm credentials. Check file permissions.")
+                    connect_lastfm.set_sensitive(True)
+                    return
+                self.lastfm_current = None
+                refresh_lastfm()
+                lastfm_feedback.set_text("Approve Ember in the browser, then click Complete connection.")
+                open_authorization()
+            def failed(message):
+                connect_lastfm.set_sensitive(True)
+                lastfm_feedback.set_text(str(message))
+            self.task(lambda: lastfm.request_token(api_key, secret), done, failed)
+
+        def complete_lastfm_clicked():
+            config = dict(self.lastfm_config)
+            token = config.get("token", "")
+            if not token:
+                lastfm_feedback.set_text("Approve Ember in the browser first.")
+                return
+            complete_lastfm.set_sensitive(False)
+            lastfm_feedback.set_text("Checking Last.fm approval…")
+            def done(session):
+                config["session_key"] = session.get("key", "")
+                config["username"] = session.get("name", "")
+                config.pop("token", None)
+                try:
+                    self.lastfm_config = lastfm.save(config)
+                except OSError:
+                    lastfm_feedback.set_text("Could not save the Last.fm session. Check file permissions.")
+                    refresh_lastfm()
+                    return
+                self.lastfm_current = None
+                refresh_lastfm()
+                lastfm_feedback.set_text("Connected as " + self.lastfm_config.get("username", "Last.fm user") + ".")
+                self.status("Last.fm connected. Now-playing updates and scrobbles are enabled.")
+            def failed(message):
+                refresh_lastfm()
+                lastfm_feedback.set_text(str(message))
+            self.task(lambda: lastfm.request_session(config.get("api_key", ""), config.get("api_secret", ""), token), done, failed)
+
+        def disconnect_lastfm_clicked():
+            config = dict(self.lastfm_config)
+            try:
+                self.lastfm_config = lastfm.save({"api_key": config.get("api_key", ""), "api_secret": config.get("api_secret", "")})
+            except OSError:
+                lastfm_feedback.set_text("Could not save Last.fm settings. Check file permissions.")
+                return
+            self.lastfm_current = None
+            refresh_lastfm()
+            lastfm_feedback.set_text("Disconnected. Ember will stop sending scrobbles.")
+            self.status("Last.fm disconnected.")
+
+        connect_lastfm = button("Connect Last.fm", connect_lastfm_clicked, "accent")
+        complete_lastfm = button("Complete connection", complete_lastfm_clicked, "ghost-button")
+        disconnect_lastfm = button("Disconnect", disconnect_lastfm_clicked, "ghost-button")
+        open_lastfm = button("Open authorization page", open_authorization, "text-button")
+        lastfm_actions.append(connect_lastfm)
+        lastfm_actions.append(complete_lastfm)
+        lastfm_actions.append(disconnect_lastfm)
+        box.append(lastfm_actions)
+        open_lastfm.set_halign(Gtk.Align.START)
+        box.append(open_lastfm)
+        refresh_lastfm()
         box.append(label("Transfer Spotify playlists locally", "settings-heading"))
         box.append(label("Use the existing CSV matching and review helper. It helps you approve matches and create an unlisted destination only after review; see TRANSFER.md. Ember itself does not upload playlists.", "settings-copy", wrap=True))
         guide = Gtk.LinkButton(uri=(ROOT / "TRANSFER.md").as_uri(), label="Open local transfer guide")
@@ -1250,6 +1396,7 @@ class Ember(Gtk.Application):
         self.anchor = time.monotonic()
         self.duration = 0
         self.current_art_url = None
+        self.lastfm_current = None
         self.seek.set_range(0, 1)
         self.seek.set_value(0)
         self.elapsed.set_text("0:00")
@@ -1280,6 +1427,8 @@ class Ember(Gtk.Application):
                 self.status("Playing YouTube Music directly")
         elif kind in ("paused", "buffering", "error", "missing-plugin", "ended", "loading"):
             self.position = self.current_position()
+            if kind in ("paused", "ended"):
+                self.maybe_scrobble(self.position)
             self.playing = False
         self.anchor = time.monotonic()
         if kind == "missing-plugin":
@@ -1424,7 +1573,7 @@ class Ember(Gtk.Application):
         combined.update({item["id"]: item for item in self.saved_playlists})
         for item in combined.values():
             self.playlists.append(self.playlist_row(item))
-            card = self.shelf_card(item["title"], self.saved_subtitle(item), lambda _button=None, value=item: self.open_playlist(value), item.get("images") or [], self.saved_art_scope)
+            card = self.shelf_card(item["title"], self.saved_subtitle(item), lambda _button=None, value=item: self.open_playlist(value), item.get("images") or [], self.saved_art_scope, item["id"])
             self.home_playlists.append(card)
         has_playlists = bool(combined)
         self.playlist_hint.set_visible(not has_playlists)
@@ -1482,14 +1631,17 @@ class Ember(Gtk.Application):
                 parts.append(count_label(unavailable, "unavailable entry omitted", "unavailable entries omitted"))
             detail = " · ".join(parts)
         self.playlist_detail.set_text(detail)
-        self.playlist_art_url = best_image(meta.get("images") or [], self.playlist_art.target)
+        self.playlist_art_url = None
         self.playlist_art.clear_art()
-        if self.playlist_art_url:
-            url = self.playlist_art_url
-            def apply(texture):
-                if url == self.playlist_art_url:
-                    self.playlist_art.set_texture(texture)
-            self.load_artwork(url, apply, self.playlist_art.target)
+        cover_applied = bool(meta.get("id")) and self.load_custom_cover(self.playlist_art, meta["id"])
+        if not cover_applied:
+            self.playlist_art_url = best_image(meta.get("images") or [], self.playlist_art.target)
+            if self.playlist_art_url:
+                url = self.playlist_art_url
+                def apply(texture):
+                    if url == self.playlist_art_url:
+                        self.playlist_art.set_texture(texture)
+                self.load_artwork(url, apply, self.playlist_art.target)
         self.playlist_unavailable = int(unavailable or 0)
         self.update_playlist_actions()
         self.playlist_save.set_sensitive(bool(meta.get("id")) and not loading)
@@ -1502,6 +1654,13 @@ class Ember(Gtk.Application):
         self.playlist_save.set_label("Remove saved" if saved else "Save playlist")
         self.playlist_save.set_tooltip_text("Stop keeping this playlist on this device" if saved else "Keep this playlist on this device")
         self.playlist_save.set_sensitive(enabled and self.playlist_panel.get_visible())
+        playlist_id = str(self.playlist_meta.get("id")) if enabled else ""
+        custom_cover = bool(playlist_id and playlist_id in self.playlist_covers)
+        self.playlist_cover.set_label("Change cover" if custom_cover else "Set cover")
+        self.playlist_cover.set_tooltip_text("Replace the artwork with a local image" if custom_cover else "Choose a local image for this playlist")
+        self.playlist_cover.set_sensitive(enabled and self.playlist_panel.get_visible())
+        self.playlist_cover_reset.set_visible(custom_cover)
+        self.playlist_cover_reset.set_sensitive(enabled)
 
     def load_playlist(self, item):
         uri = item.get("uri")
@@ -1661,6 +1820,74 @@ class Ember(Gtk.Application):
         self.library_meta.set_text("Saved on this device" if not saved else "Public playlist · save to keep it here")
         self.status("Playlist saved locally." if not saved else "Playlist removed from this device.")
 
+    def choose_playlist_cover(self):
+        meta = self.playlist_meta or {}
+        playlist_id = str(meta.get("id") or "")
+        if not playlist_id or self.playlist_cover_dialog is not None:
+            return
+        dialog = Gtk.FileDialog(title="Choose a playlist cover", modal=True)
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Image files")
+        for mime in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+            image_filter.add_mime_type(mime)
+        for pattern in ("*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"):
+            image_filter.add_pattern(pattern)
+        dialog.set_default_filter(image_filter)
+        self.playlist_cover_dialog = dialog
+        try:
+            dialog.open(self.window, None, lambda *args: self.playlist_cover_chosen(args[0], args[1], playlist_id))
+        except GLib.Error as error:
+            self.playlist_cover_dialog = None
+            self.status("Could not open the image picker: " + error.message)
+
+    def playlist_cover_chosen(self, dialog, result, playlist_id):
+        self.playlist_cover_dialog = None
+        try:
+            selected = dialog.open_finish(result)
+        except GLib.Error:
+            return
+        if selected is None:
+            return
+        filename = selected.get_path()
+        if not filename:
+            self.status("Choose an image stored on this device.")
+            return
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(filename, 512, 512, True)
+            ok, image = pixbuf.save_to_bufferv("png", [], [])
+            if not ok:
+                raise ValueError("Could not encode the cover")
+        except Exception:
+            self.status("Could not read that image. Choose a PNG, JPEG, or WebP file.")
+            return
+        try:
+            self.playlist_covers = playlist_covers.write(playlist_id, bytes(image))
+        except (OSError, ValueError):
+            self.status("Could not save the playlist cover. Check file permissions.")
+            return
+        self.refresh_playlist_cover(playlist_id)
+
+    def refresh_playlist_cover(self, playlist_id):
+        self.render_saved_playlists()
+        if self.playlist_meta and self.playlist_meta.get("id") == playlist_id:
+            self.show_playlist_panel(self.playlist_meta, len(self.visible_tracks), self.playlist_unavailable)
+        self.status("Playlist cover saved locally.")
+
+    def clear_playlist_cover(self):
+        meta = self.playlist_meta or {}
+        playlist_id = str(meta.get("id") or "")
+        if not playlist_id:
+            return
+        try:
+            self.playlist_covers = playlist_covers.remove(playlist_id)
+        except OSError:
+            self.status("Could not remove the custom playlist cover. Check file permissions.")
+            return
+        self.render_saved_playlists()
+        if self.playlist_meta and self.playlist_meta.get("id") == playlist_id:
+            self.show_playlist_panel(self.playlist_meta, len(self.visible_tracks), self.playlist_unavailable)
+        self.status("Playlist cover reset to YouTube artwork.")
+
     def track_row(self, track):
         row = Gtk.ListBoxRow()
         row.track_id = track.get("id")
@@ -1722,10 +1949,71 @@ class Ember(Gtk.Application):
         self.update_download_button()
         self.update_playing_row()
         self.audio.load(url)
+        self.start_lastfm(track)
         self.prefetch_next()
+
+    def lastfm_track_fields(self, track):
+        title = str(track.get("name") or "").strip()
+        artists = []
+        for artist in track.get("artists") or []:
+            name = display_artist(artist.get("name") if isinstance(artist, dict) else artist).strip()
+            if name and name != "Unknown artist" and name not in artists:
+                artists.append(name)
+        if not title or not artists:
+            return None
+        album = track.get("album")
+        if isinstance(album, dict):
+            album = album.get("name")
+        album = str(album or "").strip()
+        try:
+            duration = max(0, int(round((track.get("duration_ms") or 0) / 1000)))
+        except (TypeError, ValueError):
+            duration = 0
+        fields = {"artist": ", ".join(artists), "track": title}
+        if album:
+            fields["album"] = album
+        if duration:
+            fields["duration"] = duration
+        return fields
+
+    def start_lastfm(self, track):
+        self.lastfm_current = None
+        if self.demo or not lastfm.connected(self.lastfm_config):
+            return
+        fields = self.lastfm_track_fields(track)
+        if not fields:
+            return
+        if "duration" not in fields:
+            duration = max(0, int(round(self.duration)))
+            if duration:
+                fields["duration"] = duration
+        config = dict(self.lastfm_config)
+        self.lastfm_current = {**fields, "started": int(time.time()), "scrobbled": False}
+        self.task(lambda config=config, fields=fields: lastfm.now_playing(config, **fields), lambda _result: None, self.lastfm_failed)
+
+    def maybe_scrobble(self, position=None):
+        current = self.lastfm_current
+        if not current or current.get("scrobbled"):
+            return
+        if not lastfm.connected(self.lastfm_config):
+            self.lastfm_current = None
+            return
+        if position is None:
+            position = self.current_position()
+        if not lastfm.should_scrobble(current.get("duration") or 0, position):
+            return
+        current["scrobbled"] = True
+        config = dict(self.lastfm_config)
+        started = current["started"]
+        fields = {key: current[key] for key in ("artist", "track", "album", "duration") if current.get(key)}
+        self.task(lambda config=config, fields=fields, started=started: lastfm.scrobble(config, timestamp=started, **fields), lambda _result: None, self.lastfm_failed)
+
+    def lastfm_failed(self, message):
+        self.status("Last.fm: " + str(message))
 
     def play_track(self, track):
         self.send("stop")
+        self.lastfm_current = None
         self.demo = False
         self.pending_track = True
         self.playing = False
@@ -1913,6 +2201,7 @@ class Ember(Gtk.Application):
         self.demo = True
         self.pending_track = False
         self.track = None
+        self.lastfm_current = None
         self.position = 0
         self.anchor = time.monotonic()
         self.duration = 40
@@ -2019,6 +2308,13 @@ class Ember(Gtk.Application):
             return
         elapsed = max(0.001, min(0.1, (now - previous) / 1_000_000))
         adjustment.set_value(adjustment.get_value() + delta * (1 - math.exp(-elapsed / 0.18)))
+
+    def lastfm_tick(self):
+        if self.closed:
+            return False
+        if self.playing and not self.demo:
+            self.maybe_scrobble()
+        return True
 
     def tick(self):
         if self.closed:
