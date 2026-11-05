@@ -1,0 +1,78 @@
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build unsigned EmberMobile IPA
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Check audio cache eviction
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/tests/AudioCacheCheck.swift \
+            -o /tmp/ember-cache-check
+          /tmp/ember-cache-check
+
+      - name: Build for iPhone (unsigned)
+        working-directory: mobile/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project EmberMobile.xcodeproj \
+            -scheme EmberMobile \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Package unsigned IPA
+        working-directory: mobile/ios
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/EmberMobile.app"
+          test -d "$APP"
+          test ! -d "$APP/_CodeSignature"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist"
+          rm -rf Payload EmberMobile-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry EmberMobile-unsigned.ipa Payload
+          shasum -a 256 EmberMobile-unsigned.ipa
+          unzip -l EmberMobile-unsigned.ipa > /tmp/ember-ipa-list.txt
+          head -20 /tmp/ember-ipa-list.txt
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmberMobile-unsigned-ipa
+          path: mobile/ios/EmberMobile-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: mobile/ios/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
