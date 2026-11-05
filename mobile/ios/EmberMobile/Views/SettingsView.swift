@@ -24,7 +24,7 @@ struct SettingsView: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .tracking(1.4)
                                 .foregroundStyle(EmberTheme.faintText)
-                            Text("The access key is stored in the iPhone Keychain and sent only to this server in an Authorization header. Audio is prepared on your server and downloaded directly over HTTPS.")
+                            Text("The access key is stored in the iPhone Keychain and sent only to this server in an Authorization header. Audio is prepared on your server and downloaded directly over HTTPS. Playlist links and lyrics requests go only to this server. No Google account is connected.")
                                 .font(.system(size: 13))
                                 .foregroundStyle(EmberTheme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -49,7 +49,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
 
-                        Text("Ember Mobile 0.1.0 · Public YouTube Music search and playback only. Playlists, lyrics, downloads, and radio are not part of this first build.")
+                        Text("Ember Mobile 0.2.0 · Public search, saved public/unlisted playlists, queue playback, and LRCLIB lyrics. No Google account sync or Apple Music lyrics.")
                             .font(.system(size: 11))
                             .foregroundStyle(EmberTheme.faintText)
                             .fixedSize(horizontal: false, vertical: true)

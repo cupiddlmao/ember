@@ -21,6 +21,13 @@
 		CC000000000000000000000C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000000C /* SettingsView.swift */; };
 		CC000000000000000000000D /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000000D /* ArtworkView.swift */; };
 		CC000000000000000000000E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000000E /* Assets.xcassets */; };
+		CC000000000000000000000F /* PlaybackQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000010 /* PlaybackQueue.swift */; };
+		CC0000000000000000000010 /* PlaylistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* PlaylistStore.swift */; };
+		CC0000000000000000000011 /* MiniPlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000012 /* MiniPlayerBar.swift */; };
+		CC0000000000000000000012 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* LibraryView.swift */; };
+		CC0000000000000000000013 /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000014 /* PlaylistDetailView.swift */; };
+		CC0000000000000000000014 /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* QueueView.swift */; };
+		CC0000000000000000000015 /* LyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* LyricsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +47,13 @@
 		BB000000000000000000000D /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		BB000000000000000000000E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BB0000000000000000000010 /* PlaybackQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueue.swift; sourceTree = "<group>"; };
+		BB0000000000000000000011 /* PlaylistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistStore.swift; sourceTree = "<group>"; };
+		BB0000000000000000000012 /* MiniPlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerBar.swift; sourceTree = "<group>"; };
+		BB0000000000000000000013 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		BB0000000000000000000014 /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
+		BB0000000000000000000015 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
+		BB0000000000000000000016 /* LyricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0000000000000000000003 /* Track.swift */,
+				BB0000000000000000000010 /* PlaybackQueue.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -98,6 +113,7 @@
 				BB0000000000000000000005 /* APIClient.swift */,
 				BB0000000000000000000006 /* PlayerController.swift */,
 				BB0000000000000000000007 /* AppModel.swift */,
+				BB0000000000000000000011 /* PlaylistStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -111,6 +127,11 @@
 				BB000000000000000000000B /* NowPlayingView.swift */,
 				BB000000000000000000000C /* SettingsView.swift */,
 				BB000000000000000000000D /* ArtworkView.swift */,
+				BB0000000000000000000012 /* MiniPlayerBar.swift */,
+				BB0000000000000000000013 /* LibraryView.swift */,
+				BB0000000000000000000014 /* PlaylistDetailView.swift */,
+				BB0000000000000000000015 /* QueueView.swift */,
+				BB0000000000000000000016 /* LyricsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -197,6 +218,13 @@
 				CC000000000000000000000B /* NowPlayingView.swift in Sources */,
 				CC000000000000000000000C /* SettingsView.swift in Sources */,
 				CC000000000000000000000D /* ArtworkView.swift in Sources */,
+				CC000000000000000000000F /* PlaybackQueue.swift in Sources */,
+				CC0000000000000000000010 /* PlaylistStore.swift in Sources */,
+				CC0000000000000000000011 /* MiniPlayerBar.swift in Sources */,
+				CC0000000000000000000012 /* LibraryView.swift in Sources */,
+				CC0000000000000000000013 /* PlaylistDetailView.swift in Sources */,
+				CC0000000000000000000014 /* QueueView.swift in Sources */,
+				CC0000000000000000000015 /* LyricsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -332,7 +360,7 @@
 				CODE_SIGNING_REQUIRED = NO;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -341,7 +369,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ember.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -361,7 +389,7 @@
 				CODE_SIGNING_REQUIRED = NO;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -370,7 +398,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ember.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

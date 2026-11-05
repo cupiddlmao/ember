@@ -81,10 +81,10 @@ struct APIClient {
         }
     }
 
-    func downloadAudio(for track: Track, protecting playingTrackID: String? = nil) async throws -> URL {
+    func downloadAudio(for track: Track, protectingTrackIDs: Set<String> = []) async throws -> URL {
         let directory = try audioDirectory()
         let destination = directory.appendingPathComponent("\(track.id).m4a")
-        let protectedNames = Set([destination.lastPathComponent, playingTrackID.map { "\($0).m4a" }].compactMap { $0 })
+        let protectedNames = Set([destination.lastPathComponent] + protectingTrackIDs.map { "\($0).m4a" })
         if let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path),
            let size = attributes[.size] as? NSNumber,
            size.intValue > 0, size.intValue <= 48 * 1024 * 1024 {
@@ -155,6 +155,78 @@ struct APIClient {
         for file in files where total > maxBytes && !names.contains(file.url.lastPathComponent) {
             try FileManager.default.removeItem(at: file.url)
             total -= file.size
+        }
+    }
+
+    func previewPlaylist(url: String, limit: Int = 50) async throws -> PlaylistPage {
+        guard var components = URLComponents(
+            url: endpoint("v1", "playlists", "preview"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw APIError.invalidConfiguration("The playlist URL is invalid.")
+        }
+        components.queryItems = [
+            URLQueryItem(name: "url", value: url),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        guard let requestURL = components.url else {
+            throw APIError.invalidConfiguration("The playlist URL is invalid.")
+        }
+        var request = URLRequest(url: requestURL)
+        request.timeoutInterval = 90
+        authorize(&request)
+        return try await decode(PlaylistPage.self, from: request)
+    }
+
+    func playlistPage(playlistID: String, offset: Int, limit: Int = 100) async throws -> PlaylistPage {
+        guard var components = URLComponents(
+            url: endpoint("v1", "playlists", playlistID),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw APIError.invalidConfiguration("The playlist URL is invalid.")
+        }
+        components.queryItems = [
+            URLQueryItem(name: "offset", value: String(offset)),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        guard let requestURL = components.url else {
+            throw APIError.invalidConfiguration("The playlist URL is invalid.")
+        }
+        var request = URLRequest(url: requestURL)
+        request.timeoutInterval = 90
+        authorize(&request)
+        return try await decode(PlaylistPage.self, from: request)
+    }
+
+    func lyrics(for track: Track) async throws -> LyricsResponse {
+        guard var components = URLComponents(
+            url: endpoint("v1", "tracks", track.id, "lyrics"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw APIError.invalidConfiguration("The lyrics URL is invalid.")
+        }
+        components.queryItems = [
+            URLQueryItem(name: "title", value: track.title),
+            URLQueryItem(name: "artist", value: track.artist),
+            URLQueryItem(name: "album", value: track.album),
+            URLQueryItem(name: "durationMs", value: String(track.durationMs))
+        ]
+        guard let requestURL = components.url else {
+            throw APIError.invalidConfiguration("The lyrics URL is invalid.")
+        }
+        var request = URLRequest(url: requestURL)
+        request.timeoutInterval = 30
+        authorize(&request)
+        return try await decode(LyricsResponse.self, from: request)
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from request: URLRequest) async throws -> T {
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            throw APIError.invalidResponse
         }
     }
 

@@ -35,3 +35,51 @@ struct APIErrorBody: Decodable {
 
     let error: Detail
 }
+
+struct PlaylistSummary: Identifiable, Decodable, Equatable {
+    let id: String
+    let title: String
+    let owner: String
+    let artworkUrl: URL?
+    let trackCount: Int
+    let unavailableCount: Int
+
+    var artwork: URL? { artworkUrl }
+}
+
+struct PlaylistPage: Decodable {
+    let playlist: PlaylistSummary
+    let tracks: [Track]
+    let offset: Int
+    let limit: Int
+    let total: Int
+    let hasMore: Bool
+}
+
+struct LyricsWord: Decodable, Equatable {
+    let text: String
+    let startMs: Int?
+    let endMs: Int?
+
+    var start: Double? { startMs.map { Double($0) / 1000 } }
+    var end: Double? { endMs.map { Double($0) / 1000 } }
+}
+
+struct LyricsLine: Decodable, Equatable {
+    let text: String
+    let startMs: Int?
+    let endMs: Int?
+    let words: [LyricsWord]
+
+    var start: Double? { startMs.map { Double($0) / 1000 } }
+    var end: Double? { endMs.map { Double($0) / 1000 } }
+    var isTimed: Bool { startMs != nil }
+}
+
+struct LyricsResponse: Decodable {
+    let trackId: String
+    let source: String
+    let kind: String
+    let lines: [LyricsLine]
+    let message: String?
+}

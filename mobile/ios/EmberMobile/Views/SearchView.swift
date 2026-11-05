@@ -2,19 +2,13 @@ import SwiftUI
 
 struct SearchView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var player: PlayerController
 
     var body: some View {
         VStack(spacing: 0) {
             header
             searchField
             content
-            if player.track != nil {
-                NowPlayingBar(player: player)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
         }
-        .animation(.easeInOut(duration: 0.22), value: player.track?.id)
         .onChange(of: model.searchText) { _, _ in
             model.scheduleSearch()
         }
@@ -107,6 +101,18 @@ struct SearchView: View {
                         ) {
                             model.play(track)
                         }
+                        .contextMenu {
+                            Button {
+                                model.playNext(track)
+                            } label: {
+                                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                            }
+                            Button {
+                                model.addToQueue(track)
+                            } label: {
+                                Label("Add to Queue", systemImage: "text.append")
+                            }
+                        }
                         .padding(.horizontal, 12)
                     }
                 }
@@ -128,7 +134,7 @@ struct SearchView: View {
                 .foregroundStyle(.white)
             Text(
                 model.searchText.isEmpty
-                ? "Search public YouTube Music tracks. Playlists, lyrics, downloads and radio arrive in a later build."
+                ? "Search public YouTube Music tracks, or save public and unlisted playlists in your Library."
                 : "Try a different spelling, song, or artist."
             )
             .font(.system(size: 13))
@@ -139,7 +145,6 @@ struct SearchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-
 private struct TrackRow: View {
     let track: Track
     let isPreparing: Bool
@@ -175,57 +180,5 @@ private struct TrackRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct NowPlayingBar: View {
-    @EnvironmentObject private var model: AppModel
-    @ObservedObject var player: PlayerController
-
-    var body: some View {
-        if let track = player.track {
-            HStack(spacing: 12) {
-                Button {
-                    model.activeSheet = .nowPlaying
-                } label: {
-                    HStack(spacing: 12) {
-                        ArtworkView(url: track.artworkUrl, size: 46, corner: 9)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(track.title)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            Text(track.artist)
-                                .font(.system(size: 12))
-                                .foregroundStyle(EmberTheme.secondaryText)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 6)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    player.togglePlayPause()
-                } label: {
-                    Image(systemName: player.state == .playing ? "pause.fill" : "play.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 42, height: 42)
-                        .background(EmberTheme.accentGradient)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(EmberTheme.surface)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(EmberTheme.pink.opacity(0.25))
-                    .frame(height: 1)
-            }
-        }
     }
 }

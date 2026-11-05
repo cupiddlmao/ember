@@ -28,6 +28,25 @@ jobs:
             -o /tmp/ember-cache-check
           /tmp/ember-cache-check
 
+      - name: Check queue ordering and stale-request invalidation
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Models/PlaybackQueue.swift \
+            mobile/ios/tests/QueueCheck.swift \
+            -o /tmp/ember-queue-check
+          /tmp/ember-queue-check
+
+      - name: Check pending playback and queue recovery
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Models/PlaybackQueue.swift \
+            mobile/ios/EmberMobile/Services/AppModel.swift \
+            mobile/ios/tests/AppModelCheck.swift \
+            -o /tmp/ember-model-check
+          /tmp/ember-model-check
+
       - name: Build for iPhone (unsigned)
         working-directory: mobile/ios
         run: |

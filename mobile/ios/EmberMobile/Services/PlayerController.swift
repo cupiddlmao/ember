@@ -20,6 +20,14 @@ final class PlayerController: NSObject, ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var errorMessage: String?
 
+    var onTrackEnded: (() -> Void)?
+    var onPlaybackFailed: ((String) -> Void)?
+    var onNext: (() -> Void)?
+    var onPrevious: (() -> Void)?
+    var onPauseRequested: (() -> Void)?
+    var onResumeRequested: (() -> Bool)?
+    var isPreparingPlayback: (() -> Bool)?
+
     private let player = AVPlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
@@ -59,6 +67,7 @@ final class PlayerController: NSObject, ObservableObject {
                 self.playbackRequested = false
                 self.state = .failed
                 self.updateNowPlayingElapsed()
+                self.onPlaybackFailed?("This audio could not be played.")
             }
         }
         player.replaceCurrentItem(with: item)
@@ -68,7 +77,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func togglePlayPause() {
-        if state == .playing || state == .loading {
+        if isPreparingPlayback?() == true || state == .playing || state == .loading {
             pause()
         } else {
             resume()
@@ -76,6 +85,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func pause() {
+        onPauseRequested?()
         playbackRequested = false
         resumeAfterInterruption = false
         guard track != nil else { return }
@@ -85,6 +95,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func resume() {
+        if onResumeRequested?() == true { return }
         guard player.currentItem != nil, state != .failed else { return }
         if state == .finished {
             seek(to: 0)
@@ -219,6 +230,7 @@ final class PlayerController: NSObject, ObservableObject {
         currentTime = duration
         player.pause()
         updateNowPlayingElapsed()
+        onTrackEnded?()
     }
 
     private func configureAudioSession() {
@@ -292,6 +304,8 @@ final class PlayerController: NSObject, ObservableObject {
         center.pauseCommand.isEnabled = true
         center.togglePlayPauseCommand.isEnabled = true
         center.changePlaybackPositionCommand.isEnabled = true
+        center.nextTrackCommand.isEnabled = true
+        center.previousTrackCommand.isEnabled = true
 
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -317,6 +331,18 @@ final class PlayerController: NSObject, ObservableObject {
             }
             Task { @MainActor [weak self] in
                 self?.seek(to: event.positionTime)
+            }
+            return .success
+        }
+        center.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.onNext?()
+            }
+            return .success
+        }
+        center.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.onPrevious?()
             }
             return .success
         }

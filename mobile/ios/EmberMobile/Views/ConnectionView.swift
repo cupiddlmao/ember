@@ -17,7 +17,7 @@ struct ConnectionView: View {
                     Text("Connect your server")
                         .font(.system(size: 25, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                    Text("Ember runs privately on your own machine. Point this iPhone at the HTTPS address from Tailscale Serve.")
+                    Text("Ember runs privately on your own machine. Point this iPhone at the HTTPS address from Tailscale Serve, including a path such as /ember.")
                         .font(.system(size: 15))
                         .foregroundStyle(EmberTheme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -48,7 +48,7 @@ struct ConnectionView: View {
         VStack(alignment: .leading, spacing: 17) {
             VStack(alignment: .leading, spacing: 7) {
                 fieldLabel("SERVER ADDRESS")
-                TextField("https://ember.your-tailnet.ts.net", text: $model.serverURL)
+                TextField("https://host.tailnet.ts.net/ember", text: $model.serverURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
