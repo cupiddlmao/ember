@@ -1,6 +1,6 @@
 import Foundation
 
-struct Track: Identifiable, Decodable, Equatable {
+struct Track: Identifiable, Codable, Equatable {
     let id: String
     let title: String
     let artist: String
@@ -82,4 +82,69 @@ struct LyricsResponse: Decodable {
     let kind: String
     let lines: [LyricsLine]
     let message: String?
+}
+
+// Ember-owned playlists are separate from saved provider bookmarks.
+struct SharedPlaylistEntry: Codable, Identifiable, Equatable {
+    let id: String
+    let track: Track
+
+    init(track: Track) {
+        id = UUID().uuidString.lowercased()
+        self.track = track
+    }
+}
+
+struct SharedPlaylist: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let revision: Int
+    let createdAt: String
+    let updatedAt: String
+    let trackCount: Int
+    let entries: [SharedPlaylistEntry]?
+}
+
+struct SharedPlaylistList: Decodable {
+    let playlists: [SharedPlaylist]
+}
+
+struct LibraryReceipt: Decodable {
+    let id: String
+    let revision: Int
+    let deleted: Bool
+}
+
+struct LibraryMutation: Codable {
+    enum Operation: String, Codable { case create, update, delete }
+    let operation: Operation
+    let playlistID: String
+    let body: Body
+
+    struct Body: Codable {
+        let requestId: String
+        let id: String?
+        let expectedRevision: Int?
+        let name: String?
+        let entries: [SharedPlaylistEntry]?
+    }
+
+    static func create(name: String, entries: [SharedPlaylistEntry] = []) -> Self {
+        let id = UUID().uuidString.lowercased()
+        return Self(operation: .create, playlistID: id,
+                    body: Body(requestId: UUID().uuidString.lowercased(), id: id,
+                               expectedRevision: nil, name: name, entries: entries))
+    }
+
+    static func update(_ playlist: SharedPlaylist, name: String, entries: [SharedPlaylistEntry]) -> Self {
+        Self(operation: .update, playlistID: playlist.id,
+             body: Body(requestId: UUID().uuidString.lowercased(), id: nil,
+                        expectedRevision: playlist.revision, name: name, entries: entries))
+    }
+
+    static func delete(_ playlist: SharedPlaylist) -> Self {
+        Self(operation: .delete, playlistID: playlist.id,
+             body: Body(requestId: UUID().uuidString.lowercased(), id: nil,
+                        expectedRevision: playlist.revision, name: nil, entries: nil))
+    }
 }

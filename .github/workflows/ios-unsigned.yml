@@ -32,6 +32,16 @@ jobs:
             -o /tmp/ember-cache-check
           /tmp/ember-cache-check
 
+      - name: Check shared playlist retries, conflicts, and private offline cache
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/SharedLibraryModel.swift \
+            mobile/ios/tests/SharedLibraryCheck.swift \
+            -o /tmp/ember-library-check
+          /tmp/ember-library-check
+
       - name: Check queue ordering and stale-request invalidation
         run: |
           swiftc -parse-as-library \

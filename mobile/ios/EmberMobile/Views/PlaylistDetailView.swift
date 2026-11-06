@@ -9,6 +9,7 @@ struct IndexedTrack: Identifiable {
 struct PlaylistDetailView: View {
     let playlist: SavedPlaylist
 
+    @State private var addingTrack: Track?
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
@@ -68,6 +69,7 @@ struct PlaylistDetailView: View {
                 .accessibilityLabel("Playlist actions")
             }
         }
+        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
         .task { await loadAll() }
     }
 
@@ -243,6 +245,7 @@ struct PlaylistDetailView: View {
                         model.play(tracks: tracks, startingAt: item.index)
                     }
                     .contextMenu {
+                        Button("Add to playlist") { addingTrack = item.track }
                         Button {
                             model.playNext(item.track)
                         } label: {
