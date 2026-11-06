@@ -16,6 +16,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Resolve short commit
+        id: commit
+        run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -47,6 +51,14 @@ jobs:
             -o /tmp/ember-model-check
           /tmp/ember-model-check
 
+      - name: Check lyric timing offset direction, bounds, and seeking
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Services/LyricsTiming.swift \
+            mobile/ios/tests/LyricsTimingCheck.swift \
+            -o /tmp/ember-lyrics-timing-check
+          /tmp/ember-lyrics-timing-check
+
       - name: Build for iPhone (unsigned)
         working-directory: mobile/ios
         run: |
@@ -61,6 +73,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            EMBER_GIT_COMMIT="${{ steps.commit.outputs.short }}" \
             build | tee xcodebuild.log
 
       - name: Package unsigned IPA
@@ -71,6 +84,9 @@ jobs:
           test -d "$APP"
           test ! -d "$APP/_CodeSignature"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist"
+          BUILT_COMMIT=$(/usr/libexec/PlistBuddy -c "Print :EmberGitCommit" "$APP/Info.plist")
+          test "$BUILT_COMMIT" = "${{ steps.commit.outputs.short }}"
+          echo "Git commit: $BUILT_COMMIT"
           rm -rf Payload EmberMobile-unsigned.ipa
           mkdir Payload
           cp -R "$APP" Payload/

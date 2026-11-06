@@ -28,6 +28,7 @@
 		CC0000000000000000000013 /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000014 /* PlaylistDetailView.swift */; };
 		CC0000000000000000000014 /* QueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* QueueView.swift */; };
 		CC0000000000000000000015 /* LyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* LyricsView.swift */; };
+		CC0000000000000000000016 /* LyricsTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000017 /* LyricsTiming.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +55,7 @@
 		BB0000000000000000000014 /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000015 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		BB0000000000000000000016 /* LyricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsView.swift; sourceTree = "<group>"; };
+		BB0000000000000000000017 /* LyricsTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsTiming.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,6 +116,7 @@
 				BB0000000000000000000006 /* PlayerController.swift */,
 				BB0000000000000000000007 /* AppModel.swift */,
 				BB0000000000000000000011 /* PlaylistStore.swift */,
+				BB0000000000000000000017 /* LyricsTiming.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -225,6 +228,7 @@
 				CC0000000000000000000013 /* PlaylistDetailView.swift in Sources */,
 				CC0000000000000000000014 /* QueueView.swift in Sources */,
 				CC0000000000000000000015 /* LyricsView.swift in Sources */,
+				CC0000000000000000000016 /* LyricsTiming.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -362,6 +366,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
+				EMBER_GIT_COMMIT = local;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EmberMobile/Info.plist;
@@ -391,6 +396,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = "";
+				EMBER_GIT_COMMIT = local;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = EmberMobile/Info.plist;
