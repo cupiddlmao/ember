@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from music import download_audio, music_link, normalize, resolve, search, library_playlists
+from music import cached_playlist, download_audio, music_link, normalize, resolve, search
 
 
 class MusicTests(unittest.TestCase):
@@ -13,55 +13,6 @@ class MusicTests(unittest.TestCase):
         cache = patch('disk_cache.ROOT', Path(folder.name))
         cache.start()
         self.addCleanup(cache.stop)
-
-    def test_google_oauth_lists_owned_playlists_and_loads_repeated_tracks(self):
-        from music import OAUTH_FILE
-        replies = [
-            {'items': [{'id': 'PL1234567890', 'snippet': {'title': 'Example'}}]},
-            {'items': [{'id': 'PL1234567890', 'snippet': {'title': 'Example'}}]},
-            {'items': [{'contentDetails': {'videoId': 'dm4tkSNKfFI'}}]*2 + [{'contentDetails': {'videoId': 'abcdefghijk'}}]},
-            {'items': [{'id': 'dm4tkSNKfFI', 'snippet': {'title': 'Awake', 'channelTitle': 'Tycho'}, 'contentDetails': {'duration': 'PT4M44S'}}]},
-        ]
-        with patch('music.authenticated_client'), patch('music._google_get', side_effect=replies) as get:
-            self.assertEqual(len(library_playlists(OAUTH_FILE)), 1)
-            result = search('https://music.youtube.com/playlist?list=PL1234567890', auth=OAUTH_FILE)
-            self.assertEqual(len(result['tracks']), 2)
-            self.assertEqual(result['tracks'][0]['duration_ms'], 284000)
-            self.assertEqual(result['unavailable'], 1)
-            self.assertTrue(get.call_args_list[0].kwargs['mine'])
-
-    def test_google_pagination(self):
-        from music import _google_pages
-        with patch('music._google_get', side_effect=[{'items': [1], 'nextPageToken': 'next'}, {'items': [2]}]) as get:
-            self.assertEqual(_google_pages(MagicMock(), 'playlists'), [1, 2])
-            self.assertEqual(get.call_args.kwargs['pageToken'], 'next')
-
-    def test_account_library_is_complete_and_errors_hide_credentials(self):
-        client = MagicMock()
-        client.get_account_info.return_value = {'accountName': 'Example'}
-        client.get_library_playlists.return_value = [{'playlistId': 'PL1234567890', 'title': 'Example'}, {'playlistId': 'bad'}]
-        with patch('music.authenticated_client', return_value=client):
-            result = library_playlists('/private/auth.json')
-            self.assertEqual([item['id'] for item in result], ['PL1234567890'])
-            client.get_library_playlists.assert_called_once_with(limit=None)
-            client.get_account_info.assert_called_once_with()
-            client.get_library_playlists.side_effect = ValueError('secret-cookie')
-            with self.assertRaises(RuntimeError) as error:
-                library_playlists('/private/auth.json')
-            self.assertNotIn('secret-cookie', str(error.exception))
-            client.get_account_info.return_value = {}
-            client.get_library_playlists.reset_mock()
-            with self.assertRaises(RuntimeError):
-                library_playlists('/private/auth.json')
-            client.get_library_playlists.assert_not_called()
-
-    def test_account_playlist_uses_authenticated_client(self):
-        client = MagicMock()
-        client.get_playlist.return_value = {'title': 'Private list', 'tracks': []}
-        with patch('music.authenticated_client', return_value=client) as factory:
-            result = search('https://music.youtube.com/playlist?list=PL1234567890', auth='/private/auth.json')
-            factory.assert_called_once_with('/private/auth.json')
-            self.assertEqual(result['playlist']['title'], 'Private list')
 
     def test_links(self):
         self.assertEqual(music_link('https://music.youtube.com/watch?v=dm4tkSNKfFI&si=tracking'), ('dm4tkSNKfFI', ''))
@@ -105,6 +56,19 @@ class MusicTests(unittest.TestCase):
             self.assertEqual(playlist['unavailable'], 2)
             self.assertEqual([track['id'] for track in playlist['tracks']], ['dm4tkSNKfFI', 'dm4tkSNKfFI'])
             api.get_playlist.assert_called_once_with('PL1234567890', limit=None)
+
+    def test_public_playlist_is_cached(self):
+        api = MagicMock()
+        api.get_playlist.return_value = {
+            'title': 'Night Drive',
+            'tracks': [{'videoId': 'dm4tkSNKfFI', 'title': 'One', 'duration': '3:00'}],
+        }
+        url = 'https://music.youtube.com/playlist?list=PL1234567890'
+        with patch('music.YTMusic', return_value=api):
+            search(url)
+        cached = cached_playlist(url)
+        self.assertEqual(cached['playlist']['title'], 'Night Drive')
+        self.assertEqual([track['id'] for track in cached['tracks']], ['dm4tkSNKfFI'])
 
     def test_download_writes_audio_file_and_returns_metadata(self):
         folder = tempfile.TemporaryDirectory()

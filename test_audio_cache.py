@@ -80,6 +80,21 @@ class AudioStoreTests(unittest.TestCase):
         self.assertEqual(self.store.lookup(TRACK)['path'], pinned['path'])
         self.assertEqual(self.download_mock.call_count, 1)
 
+    def test_clear_invalidates_running_and_queued_auto_downloads(self):
+        epoch = self.store.generation
+        def clear_during_download(track, folder):
+            result = self.fake_download(track, folder)
+            self.store.clear_auto()
+            return result
+        self.download_mock.side_effect = clear_during_download
+        self.assertIsNone(self.store.download(TRACK))
+        self.assertIsNone(self.store.entry(TRACK['id']))
+        self.assertFalse(list(self.store.cache_root.rglob('*.webm')))
+        self.download_mock.reset_mock()
+        self.assertIsNone(self.store.download(TRACK, expected_generation=epoch))
+        self.download_mock.assert_not_called()
+        self.assertTrue(self.store.download(TRACK, pinned=True, expected_generation=epoch)['pinned'])
+
     def test_missing_file_is_pruned(self):
         result = self.store.download(TRACK, pinned=True)
         result['path'].unlink()
