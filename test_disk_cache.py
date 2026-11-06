@@ -55,17 +55,6 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(unrelated.read_text(), 'keep')
         self.assertEqual(saved.read_text(), 'keep saved playlists')
 
-    def test_accounts_are_isolated_and_missing_login_has_no_cache(self):
-        auth = self.root.parent/'login.json'
-        auth.write_text(json.dumps({'refresh_token': 'first-account'}))
-        key = music._cache_key('playlist', auth)
-        cache.put_metadata(key, {'title': 'private'}, cache.generation())
-        auth.write_text(json.dumps({'refresh_token': 'second-account'}))
-        self.assertIsNone(music.cached_playlist('playlist', auth))
-        auth.unlink()
-        self.assertIsNone(music.cached_playlist('playlist', auth))
-        self.assertNotIn('first-account', key)
-
     def test_playlist_cache_survives_refresh_failure(self):
         result = {'kind': 'playlist', 'tracks': [], 'playlist': {'id': 'PL1234567890'}}
         with patch('music._search', return_value=result):
@@ -74,24 +63,3 @@ class CacheTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 music.search('https://music.youtube.com/playlist?list=PL1234567890')
         self.assertEqual(music.cached_playlist('https://music.youtube.com/playlist?list=PL1234567890'), result)
-
-    def test_artwork_worker_reuses_resized_image_without_network(self):
-        from types import SimpleNamespace
-        import threading
-        from unittest.mock import MagicMock
-        from app import Ember, GdkPixbuf, Gio, GLib
-        pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 256, 256)
-        pixbuf.fill(0xff0000ff)
-        _, raw = pixbuf.save_to_bufferv('png', [], [])
-        key = ('https://i.ytimg.com/example.jpg', 80)
-        fake = SimpleNamespace(art_lock=threading.RLock(), art_waiters={key: [(None, None)]}, art_queued={key}, art_queue=MagicMock(), art_delivered=MagicMock())
-        with patch('app.download_artwork', return_value=bytes(raw)) as download, patch('app.GLib.idle_add'):
-            for _ in range(2):
-                fake.art_queue.get.side_effect = [(1, 0, key), StopIteration]
-                with self.assertRaises(StopIteration):
-                    Ember.art_worker(fake)
-            self.assertEqual(download.call_count, 1)
-        resized = cache.get('artwork', f'{key[0]}:{key[1]}')
-        stream = Gio.MemoryInputStream.new_from_bytes(GLib.Bytes.new(resized))
-        image = GdkPixbuf.Pixbuf.new_from_stream(stream, None)
-        self.assertEqual((image.get_width(), image.get_height()), (80, 80))

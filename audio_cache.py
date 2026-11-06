@@ -37,6 +37,7 @@ class AudioStore:
         self.index_path = Path(index_path or DEFAULT_INDEX_PATH)
         self.limit = max(0, int(limit if limit is not None else DEFAULT_LIMIT))
         self.lock = threading.RLock()
+        self.generation = 0
 
     @contextmanager
     def _db(self):
@@ -188,12 +189,16 @@ class AudioStore:
         except OSError:
             pass
 
-    def download(self, track, pinned=False, protect=None):
+    def download(self, track, pinned=False, protect=None, expected_generation=None):
         """Download a track, or return/promote an existing copy.
 
         ``protect`` is a video ID that automatic LRU eviction must not remove
         (normally the currently playing track).
         """
+        with self.lock:
+            epoch = self.generation if expected_generation is None else expected_generation
+            if not pinned and epoch != self.generation:
+                return None
         video = self._video(track)
         existing = self.entry(video)
         if existing:
@@ -212,10 +217,12 @@ class AudioStore:
             if not source.is_file():
                 raise RuntimeError('YouTube did not produce an audio file.')
             destination = self._file_for(root, video, source.suffix)
-            self._move(source, destination)
             data = self._metadata(track, resolved)
             now = time.time()
             with self.lock, self._db() as con:
+                if not pinned and epoch != self.generation:
+                    return None
+                self._move(source, destination)
                 con.execute('''
                     INSERT INTO audio
                         (video_id, path, bytes, pinned, track_json, created_at, last_used_at)
@@ -270,6 +277,7 @@ class AudioStore:
     def clear_auto(self):
         """Delete automatic cache files, preserving pinned offline downloads."""
         with self.lock, self._db() as con:
+            self.generation += 1
             rows = con.execute('SELECT video_id, path FROM audio WHERE pinned=0').fetchall()
             for row in rows:
                 path = Path(row['path'])
