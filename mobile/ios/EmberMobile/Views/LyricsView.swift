@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct LyricsView: View {
@@ -11,6 +12,7 @@ struct LyricsView: View {
     @State private var errorMessage: String?
     @State private var following = true
     @State private var activeIndex: Int?
+    @State private var timingOffset = 0.0
     @State private var retryToken = 0
 
     var body: some View {
@@ -79,6 +81,7 @@ struct LyricsView: View {
         }
         .preferredColorScheme(.dark)
         .task(id: retryToken) {
+            timingOffset = LyricsOffsetStore.offset(for: track.id)
             await loadLyrics()
         }
     }
@@ -99,36 +102,115 @@ struct LyricsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("LYRICS")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(2.1)
-                    .foregroundStyle(EmberTheme.faintText)
-                Text(track.title)
-                    .font(.system(size: 21, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                Text(track.artist)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(EmberTheme.pinkSoft)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LYRICS")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(2.1)
+                        .foregroundStyle(EmberTheme.faintText)
+                    Text(track.title)
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    Text(track.artist)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(EmberTheme.pinkSoft)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Color.white.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close lyrics")
             }
-            Spacer(minLength: 8)
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Circle())
+
+            if lyrics?.kind == "synced" {
+                timingControls
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close lyrics")
         }
         .padding(.bottom, 8)
+    }
+
+    private var timingControls: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Text("SYNC OFFSET")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1.2)
+                    .foregroundStyle(EmberTheme.faintText)
+                Spacer(minLength: 4)
+                Text(LyricsTiming.offsetText(timingOffset))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(EmberTheme.pinkSoft)
+                Button("Reset") {
+                    setTimingOffset(0)
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(timingOffset == 0 ? EmberTheme.faintText : EmberTheme.pink)
+                .disabled(timingOffset == 0)
+            }
+
+            HStack(spacing: 7) {
+                timingButton(
+                    "Earlier",
+                    systemImage: "minus",
+                    direction: -1,
+                    disabled: timingOffset <= -LyricsTiming.limit
+                )
+                timingButton(
+                    "Later",
+                    systemImage: "plus",
+                    direction: 1,
+                    disabled: timingOffset >= LyricsTiming.limit
+                )
+                Spacer(minLength: 4)
+                Text(LyricsTiming.directionText(timingOffset))
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(EmberTheme.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(EmberTheme.hairline, lineWidth: 1)
+        )
+    }
+
+    private func timingButton(
+        _ title: String,
+        systemImage: String,
+        direction: Int,
+        disabled: Bool
+    ) -> some View {
+        Button {
+            setTimingOffset(LyricsTiming.stepped(timingOffset, by: direction))
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .frame(height: 28)
+                .background(Color.white.opacity(0.08))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.35 : 1)
+        .accessibilityLabel("Move lyrics \(title.lowercased()) by 0.25 seconds")
     }
 
     @ViewBuilder
@@ -186,7 +268,11 @@ struct LyricsView: View {
                     if line.isTimed {
                         Button {
                             if let start = line.start {
-                                player.seek(to: start)
+                                let seekTime = LyricsTiming.playbackTime(
+                                    forLyricStart: start,
+                                    offset: timingOffset
+                                )
+                                player.seek(to: seekTime)
                                 following = true
                                 activeIndex = index
                             }
@@ -213,7 +299,7 @@ struct LyricsView: View {
     private func lineLabel(_ line: LyricsLine, index: Int) -> some View {
         let active = activeIndex == index
         return styledText(line, active: active)
-            .font(.system(size: active ? 30 : 23, weight: active ? .bold : .semibold, design: .rounded))
+            .font(.system(size: 28, weight: .bold, design: .rounded))
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 3)
@@ -223,22 +309,35 @@ struct LyricsView: View {
     }
 
     private func styledText(_ line: LyricsLine, active: Bool) -> Text {
-        guard active, !line.words.isEmpty else {
-            return Text(line.text)
-                .foregroundColor(active ? .white : Color.white.opacity(0.4))
-        }
-        var value = Text("")
+        var attributed = AttributedString(line.text)
+        attributed.foregroundColor = active ? .white : Color.white.opacity(0.4)
+        guard active, !line.words.isEmpty else { return Text(attributed) }
+
+        var searchStart = line.text.startIndex
         for (index, word) in line.words.enumerated() {
-            let color: Color = isWordActive(word, at: index, in: line)
+            guard !word.text.isEmpty,
+                  let found = line.text.range(
+                      of: word.text,
+                      options: [],
+                      range: searchStart..<line.text.endIndex
+                  ),
+                  let lower = AttributedString.Index(found.lowerBound, within: attributed),
+                  let upper = AttributedString.Index(found.upperBound, within: attributed) else {
+                continue
+            }
+            attributed[lower..<upper].foregroundColor = isWordActive(word, at: index, in: line)
                 ? EmberTheme.pinkSoft
                 : Color.white.opacity(0.9)
-            value = value + Text(word.text).foregroundColor(color)
+            searchStart = found.upperBound
         }
-        return value
+        return Text(attributed)
     }
 
     private func isWordActive(_ word: LyricsWord, at index: Int, in line: LyricsLine) -> Bool {
-        let time = player.currentTime
+        let time = LyricsTiming.lyricTime(
+            forPlaybackTime: player.currentTime,
+            offset: timingOffset
+        )
         guard let start = word.start, start <= time else { return false }
         if let end = word.end {
             return time < end
@@ -304,15 +403,25 @@ struct LyricsView: View {
         isLoading = false
     }
 
+    private func setTimingOffset(_ value: Double) {
+        // This only shifts lyric presentation; it never seeks or changes audio playback.
+        let normalized = LyricsTiming.normalized(value)
+        guard normalized != timingOffset else { return }
+        timingOffset = normalized
+        LyricsOffsetStore.set(normalized, for: track.id)
+        updateActive(player.currentTime)
+    }
+
     private func updateActive(_ time: Double) {
         guard lyrics?.kind == "synced", let lines = lyrics?.lines else {
             if activeIndex != nil { activeIndex = nil }
             return
         }
+        let lyricTime = LyricsTiming.lyricTime(forPlaybackTime: time, offset: timingOffset)
         var selected: Int?
         for (index, line) in lines.enumerated() {
             guard let start = line.start else { continue }
-            if start <= time + 0.08 {
+            if start <= lyricTime + 0.08 {
                 selected = index
             } else {
                 break

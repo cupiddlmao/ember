@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct SettingsView: View {
@@ -16,6 +17,15 @@ struct SettingsView: View {
                             rows: [
                                 ("Address", model.serverURL),
                                 ("Status", "Connected")
+                            ]
+                        )
+
+                        infoCard(
+                            title: "APP",
+                            rows: [
+                                ("Version", appVersion),
+                                ("Build", appBuild),
+                                ("Commit", appCommit)
                             ]
                         )
 
@@ -49,7 +59,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
 
-                        Text("Ember Mobile 0.2.0 · Public search, saved public/unlisted playlists, queue playback, and LRCLIB lyrics. No Google account sync or Apple Music lyrics.")
+                        Text("Ember Mobile · Public search, saved public/unlisted playlists, queue playback, and LRCLIB lyrics. No Google account sync or Apple Music lyrics.")
                             .font(.system(size: 11))
                             .foregroundStyle(EmberTheme.faintText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -85,6 +95,31 @@ struct SettingsView: View {
         } message: {
             Text("Search and playback will stop until you reconnect.")
         }
+    }
+
+    private var appVersion: String {
+        bundleString("CFBundleShortVersionString") ?? "Unknown"
+    }
+
+    private var appBuild: String {
+        bundleString("CFBundleVersion") ?? "Unknown"
+    }
+
+    private var appCommit: String {
+        guard let value = bundleString("EmberGitCommit"),
+              value.lowercased() != "local",
+              !value.hasPrefix("$(") else {
+            return "Local build"
+        }
+        return value
+    }
+
+    private func bundleString(_ key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func infoCard(title: String, rows: [(String, String)]) -> some View {
