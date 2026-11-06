@@ -1,0 +1,35 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: mobile/backend/Dockerfile
+    image: ember-mobile-api:0.3.0
+    restart: unless-stopped
+    environment:
+      EMBER_API_TOKEN: ${EMBER_API_TOKEN:?Set EMBER_API_TOKEN in mobile/backend/.env}
+      EMBER_CACHE_MAX_MB: ${EMBER_CACHE_MAX_MB:-2048}
+      EMBER_MAX_AUDIO_MB: ${EMBER_MAX_AUDIO_MB:-48}
+    ports:
+      - "127.0.0.1:${EMBER_HOST_PORT:-18080}:8080"
+    volumes:
+      - audio-cache:/var/lib/ember/cache
+      - playlist-library:/var/lib/ember/library
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request;
+          request = urllib.request.Request(
+          'http://127.0.0.1:8080/v1/health',
+          headers={'Authorization': 'Bearer ' + os.environ['EMBER_API_TOKEN']});
+          urllib.request.urlopen(request, timeout=5).read()
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  audio-cache:
+  playlist-library:
