@@ -1190,7 +1190,11 @@ impl AppUi {
             JobKind::Library if job.seq == self.library_seq => {
                 let result = match job.result {
                     Ok(BridgePayload::Library(state)) => {
-                        if !state.error.is_empty() { self.set_status(&state.error, false); }
+                        if !state.error.is_empty() {
+                            self.set_status(&state.error, false);
+                        } else {
+                            self.set_status("Shared library updated.", false);
+                        }
                         Ok(state)
                     }
                     _ => Err("Shared library request failed.".to_owned()),
