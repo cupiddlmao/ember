@@ -22,8 +22,6 @@ The report saves progress after each track. Repeating the command resumes; chang
 
 ## 3. Authorize locally
 
-For Brave, copy a signed-in YouTube Music search request using Network → right-click request → Copy → Copy as cURL (bash). Run `.venv/bin/python import_youtube_auth.py` in the project folder, paste into its hidden input, press Enter, then Ctrl+D. The helper parses the text without executing it and saves the same private auth file used below. Never paste the copied command at a shell prompt or into chat.
-
 The installed ytmusicapi supports browser-header authentication, but marks it deprecated. Follow its [browser authentication documentation](https://ytmusicapi.readthedocs.io/en/stable/setup/browser.html). Never send browser headers/cookies in chat, commit them, or put them in the review report. They grant account access.
 
 Run this locally in your terminal, then follow its prompts:
