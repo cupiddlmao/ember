@@ -5,6 +5,9 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDisconnect = false
+    @State private var lastFMStatus = "Connect once for both desktop and iPhone."
+    @State private var lastFMBusy = false
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NavigationStack {
@@ -19,6 +22,17 @@ struct SettingsView: View {
                                 ("Status", "Connected")
                             ]
                         )
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("LAST.FM").font(.caption.bold())
+                            Text(lastFMStatus).font(.caption)
+                            Button("Connect Last.fm") { lastFMAction("connect") }
+                            Button("Finish browser authorization") { lastFMAction("finish") }
+                            Button("Disconnect Last.fm", role: .destructive) { lastFMAction("disconnect") }
+                        }
+                        .disabled(lastFMBusy)
+                        .padding(16)
+                        .emberCard()
 
                         infoCard(
                             title: "APP",
@@ -81,6 +95,7 @@ struct SettingsView: View {
             .toolbarBackground(EmberTheme.background, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
         }
+        .task { lastFMAction("status") }
         .preferredColorScheme(.dark)
         .confirmationDialog(
             "Forget the server access key?",
@@ -94,6 +109,31 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Search and playback will stop until you reconnect.")
+        }
+    }
+
+    private func lastFMAction(_ action: String) {
+        guard !lastFMBusy, let api = model.client else { return }
+        lastFMBusy = true
+        Task {
+            defer { lastFMBusy = false }
+            do {
+                let result = try await api.lastFM(["action": action])
+                if let raw = result["url"] as? String, let url = URL(string: raw),
+                   url.scheme == "https", url.host == "www.last.fm" {
+                    openURL(url)
+                    lastFMStatus = "Approve in your browser, then tap Finish browser authorization."
+                } else {
+                    let status = try await api.lastFM(["action": "status"])
+                    if status["connected"] as? Bool == true {
+                        lastFMStatus = "Connected as \(status["username"] as? String ?? "") · \(status["pending"] as? Int ?? 0) pending"
+                    } else if status["configured"] as? Bool == true {
+                        lastFMStatus = "Not connected."
+                    } else {
+                        lastFMStatus = "Set LASTFM_API_KEY and LASTFM_API_SECRET on the server first."
+                    }
+                }
+            } catch { lastFMStatus = error.localizedDescription }
         }
     }
 

@@ -41,6 +41,7 @@ final class AppModel: ObservableObject {
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? ""
         accessKey = ""
         savedPlaylists = PlaylistStore.load()
+        player.lastFM.client = { [weak self] in self?.client }
         player.onTrackEnded = { [weak self] in
             self?.advanceQueueAfterEnd()
         }

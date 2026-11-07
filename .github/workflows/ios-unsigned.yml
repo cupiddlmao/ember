@@ -42,6 +42,16 @@ jobs:
             -o /tmp/ember-library-check
           /tmp/ember-library-check
 
+      - name: Check Last.fm listening excludes pause, buffering and seeks
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/LastFMReporter.swift \
+            mobile/ios/tests/LastFMCheck.swift \
+            -o /tmp/ember-lastfm-check
+          /tmp/ember-lastfm-check
+
       - name: Check queue ordering and stale-request invalidation
         run: |
           swiftc -parse-as-library \

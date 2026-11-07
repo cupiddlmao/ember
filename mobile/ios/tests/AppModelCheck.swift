@@ -41,7 +41,11 @@ enum KeychainStore {
 }
 
 @MainActor
+final class LastFMDouble { var client: (() -> APIClient?)? }
+
+@MainActor
 final class PlayerController {
+    let lastFM = LastFMDouble()
     enum PlaybackState { case idle, loading, playing, paused, failed }
     var state: PlaybackState = .idle
     var track: Track?

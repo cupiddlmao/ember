@@ -49,6 +49,22 @@ struct APIClient {
         self.session = session ?? URLSession(configuration: configuration)
     }
 
+    func lastFM(_ body: [String: Any]) async throws -> [String: Any] {
+        var request = URLRequest(url: endpoint("v1", "lastfm"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        authorize(&request)
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        guard data.count <= 16384,
+              let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw APIError.invalidResponse
+        }
+        return result
+    }
+
     func health() async throws {
         var request = URLRequest(url: endpoint("v1", "health"))
         request.timeoutInterval = 15
