@@ -103,12 +103,12 @@ final class LastFMReporter {
         if let track, playing {
             if started == 0 { started = Int(Date().timeIntervalSince1970) }
             if !wasPlaying || now - lastNow >= 60 {
-                nowBody = ["action": "now", "title": track.title, "artist": track.artist]
+                nowBody = ["action": "now", "title": track.title, "artist": track.artist, "album": track.album]
                 lastNow = now
             }
             if !submitted, duration > 30, clock.listened >= min(duration / 2, 240) {
                 pending.append(["action": "scrobble", "id": playbackID, "title": track.title,
-                                "artist": track.artist, "duration": Int(duration),
+                                "artist": track.artist, "album": track.album, "duration": Int(duration),
                                 "listened": Int(ceil(clock.listened)), "started": started])
                 pending = Array(pending.suffix(1000))
                 submitted = true
