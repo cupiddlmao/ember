@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -31,6 +31,8 @@ class Settings:
     library_dir: Path = Path("/var/lib/ember/library")
     cache_dir: Path = Path("/var/lib/ember/cache")
     cache_max_bytes: int = 2 * 1024 ** 3
+    lastfm_api_key: str = field(default="", repr=False)
+    lastfm_api_secret: str = field(default="", repr=False)
     max_search_limit: int = 25
     max_audio_bytes: int = 48 * 1024 ** 2
     max_concurrent_jobs: int = 3
@@ -54,6 +56,8 @@ class Settings:
             port=_positive_int("EMBER_PORT", 8080),
             library_dir=Path(os.environ.get("EMBER_LIBRARY_DIR", "/var/lib/ember/library")),
             cache_dir=Path(os.environ.get("EMBER_CACHE_DIR", "/var/lib/ember/cache")),
+            lastfm_api_key=os.environ.get("LASTFM_API_KEY", "").strip(),
+            lastfm_api_secret=os.environ.get("LASTFM_API_SECRET", "").strip(),
             cache_max_bytes=_positive_int("EMBER_CACHE_MAX_MB", 2048) * 1024 * 1024,
             max_audio_bytes=_positive_int("EMBER_MAX_AUDIO_MB", 48) * 1024 * 1024,
             max_concurrent_jobs=_positive_int("EMBER_MAX_JOBS", 3),

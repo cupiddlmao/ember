@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .audio_cache import AudioCache
 from .config import Settings
+from .lastfm_service import LastFM
 from .library_store import LibraryError, LibraryStore
 from .lyrics_service import LyricsError, LyricsService
 from .music_service import MusicService, UpstreamError
@@ -87,9 +88,14 @@ class EmberServer(ThreadingHTTPServer):
         self.playlists = playlists or PlaylistService()
         self.lyrics = lyrics or LyricsService()
         self.library = library if library is not None else LibraryStore(settings.library_dir)
+        self.lastfm = LastFM(settings)
         self.limiter = limiter or RateLimiter(settings.rate_limit_per_minute)
         self.jobs = threading.BoundedSemaphore(max(1, settings.max_concurrent_jobs))
         super().__init__(address, ApiHandler)
+
+    def server_close(self):
+        self.lastfm.close()
+        super().server_close()
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -174,6 +180,32 @@ class ApiHandler(BaseHTTPRequestHandler):
             return HTTPStatus.UNAUTHORIZED
 
         route_path = self._route_path(parsed.path)
+        if route_path == "/v1/lastfm":
+            if self.command != "POST":
+                self._send_error(405, "method_not_allowed", "Use POST.", {"Allow": "POST"})
+                return 405
+            try:
+                length = self.headers.get("Content-Length", "")
+                if not re.fullmatch(r"[0-9]{1,4}", length) or not 0 < int(length) <= 4096:
+                    raise LibraryError(413, "body_too_large", "Last.fm requests are limited to 4 KiB.")
+                body = self._library_body()
+                if not isinstance(body, dict):
+                    raise LibraryError(400, "invalid_body", "Expected a JSON object.")
+                if body.get("action") == "radio":
+                    if not self._begin_job():
+                        return HTTPStatus.SERVICE_UNAVAILABLE
+                    try:
+                        recommendations = self.server.lastfm.recommendations(body)
+                        result = {"tracks": self.server.service.radio(recommendations)}
+                    finally:
+                        self.server.jobs.release()
+                else:
+                    result = self.server.lastfm.handle(body)
+                self._send_json(200, result)
+                return 200
+            except LibraryError as error:
+                self._send_error(error.status, error.code, str(error))
+                return error.status
         library_match = LIBRARY_ROUTE.fullmatch(route_path)
         if route_path == LIBRARY_ROOT or library_match:
             return self._library(library_match.group(1) if library_match else None)

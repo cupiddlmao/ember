@@ -6,6 +6,10 @@ No Google account credentials are read or used.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+import requests
+import unicodedata
 import re
 import shutil
 import subprocess
@@ -88,6 +92,42 @@ class MusicService:
                 tracks.append(serialized)
             if len(tracks) >= limit:
                 break
+        return tracks
+
+    def radio(self, recommendations: list[dict]) -> list[dict]:
+        def canonical(value):
+            return "".join(c for c in unicodedata.normalize("NFKD", value.casefold()) if c.isalnum())
+
+        def match(recommendation):
+            try:
+                with requests.Session() as session:
+                    session.request = partial(session.request, timeout=5)
+                    catalog = music.YTMusic(requests_session=session)
+                    query = recommendation["title"] + " " + recommendation["artist"]
+                    candidates = catalog.search(query, filter="songs", limit=5) or []
+                for candidate in candidates[:5]:
+                    if not isinstance(candidate, dict):
+                        continue
+                    try:
+                        track = music.normalize(candidate)
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    artists = [canonical(a["name"]) for a in track["artists"]]
+                    if (canonical(track["name"]) == canonical(recommendation["title"])
+                            and canonical(recommendation["artist"]) in artists
+                            and candidate.get("isAvailable") is not False):
+                        return serialize_track(track)
+            except Exception:
+                # One unavailable recording must not discard the rest of the mix.
+                return None
+            return None
+
+        tracks, seen = [], set()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for track in pool.map(match, recommendations[:12]):
+                if track and track["id"] not in seen:
+                    tracks.append(track)
+                    seen.add(track["id"])
         return tracks
 
     def audio_file(self, video_id: str) -> Path:
