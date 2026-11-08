@@ -58,7 +58,40 @@ struct LyricsTimingCheck {
         check(LyricsTiming.directionText(-0.25) == "Lyrics appear earlier", "earlier direction")
         check(LyricsTiming.directionText(0) == "Aligned with audio", "reset direction")
 
-        print("Lyrics timing offset direction, bounds, and tap-to-seek checks passed")
+        let lines = [
+            LyricsLine(text: "first", startMs: 1_000, endMs: 4_000, words: []),
+            LyricsLine(text: "second", startMs: 5_000, endMs: nil, words: [])
+        ]
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 0.9, offset: 0) == nil,
+            "a line must not activate before its timestamp"
+        )
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 1.0, offset: 0) == 0,
+            "a line should activate at its timestamp"
+        )
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 5.0, offset: 0) == 1,
+            "the latest due line should be active"
+        )
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 5.16, offset: 0.25) == 0,
+            "a positive offset should delay the second line beyond the early-highlight window"
+        )
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 5.18, offset: 0.25) == 1,
+            "the second line should activate inside the 80 ms early-highlight window"
+        )
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 5.2, offset: 0.25) == 1,
+            "a positive offset retains the existing early-highlight allowance"
+        )
+        check(
+            LyricsTiming.activeLineIndex(in: lines, playbackTime: 4.8, offset: -0.25) == 1,
+            "a negative offset should advance the second line"
+        )
+
+        print("Lyrics timing offset, active-line, bounds, and tap-to-seek checks passed")
     }
 
     private static func check(_ condition: @autoclosure () -> Bool, _ message: String) {

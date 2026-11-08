@@ -74,6 +74,7 @@ jobs:
       - name: Check lyric timing offset direction, bounds, and seeking
         run: |
           swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
             mobile/ios/EmberMobile/Services/LyricsTiming.swift \
             mobile/ios/tests/LyricsTimingCheck.swift \
             -o /tmp/ember-lyrics-timing-check
