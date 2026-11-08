@@ -1,69 +1,12 @@
-"""Public YouTube Music catalog with native audio resolved by yt-dlp."""
+"""Public YouTube Music catalog for the Rust desktop bridge and mobile API."""
 import re
 import urllib.parse
-import requests
-import hashlib
 from pathlib import Path
+
 import disk_cache
-from services import load_private
 
 import yt_dlp
 from ytmusicapi import YTMusic
-from youtube_auth import client as authenticated_client
-from youtube_auth import OAUTH_FILE
-
-
-def _google_get(client, endpoint, **params):
-    response = requests.get('https://www.googleapis.com/youtube/v3/' + endpoint,
-                            params=params, headers={'Authorization': client.headers['authorization']}, timeout=15)
-    if response.status_code != 200:
-        raise RuntimeError('Google could not read playlists. Check YouTube Data API access or reconnect your account.')
-    return response.json()
-
-
-def _google_pages(client, endpoint, **params):
-    items, token = [], None
-    while True:
-        data = _google_get(client, endpoint, maxResults=50, **params, **({'pageToken': token} if token else {}))
-        items.extend(data.get('items', []))
-        next_token = data.get('nextPageToken')
-        if not next_token:
-            return items
-        if next_token == token:
-            raise RuntimeError('Google repeated a playlist page. Retry loading this list.')
-        token = next_token
-
-
-def _google_images(snippet):
-    return list((snippet.get('thumbnails') or {}).values())
-
-
-def _google_playlist(client, playlist):
-    metadata = _google_get(client, 'playlists', part='snippet', id=playlist).get('items', [])
-    if not metadata:
-        raise RuntimeError('This playlist is unavailable to the connected Google account.')
-    snippet = metadata[0]['snippet']
-    entries = _google_pages(client, 'playlistItems', part='snippet,contentDetails', playlistId=playlist)
-    ids = [item.get('contentDetails', {}).get('videoId') for item in entries]
-    details = {}
-    unique = list(dict.fromkeys(v for v in ids if v))
-    for start in range(0, len(unique), 50):
-        data = _google_get(client, 'videos', part='snippet,contentDetails', id=','.join(unique[start:start + 50]))
-        details.update({item['id']: item for item in data.get('items', [])})
-    tracks = []
-    for video in ids:
-        item = details.get(video)
-        if not item:
-            continue
-        info = item['snippet']
-        duration = item.get('contentDetails', {}).get('duration', '')
-        match = re.fullmatch(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
-        seconds = sum(int(n or 0) * scale for n, scale in zip(match.groups(), (3600, 60, 1))) if match else 0
-        tracks.append(normalize({'videoId': video, 'title': info['title'], 'artists': [{'name': info.get('channelTitle', 'Unknown artist')}],
-                                 'duration_seconds': seconds, 'thumbnails': _google_images(info)}))
-    meta = _playlist_meta(playlist, {'title': snippet['title'], 'author': snippet.get('channelTitle'), 'thumbnails': _google_images(snippet)})
-    meta['track_count'] = len(tracks)
-    return {'kind': 'playlist', 'title': meta['title'], 'playlist': meta, 'tracks': tracks, 'returned': len(entries), 'unavailable': len(entries)-len(tracks)}
 
 
 class Quiet:
@@ -99,7 +42,7 @@ def normalize(item):
     video = item.get('videoId') or item.get('id', '')
     if not re.fullmatch(r'[\w-]{11}', str(video), flags=re.ASCII):
         raise ValueError('YouTube returned an invalid track ID.')
-    duration = item.get('duration_seconds') or item.get('duration') or 0
+    duration = item.get('duration_seconds') or item.get('duration') or item.get('length') or 0
     if isinstance(duration, str):
         parts = duration.split(':')
         duration = sum(int(part) * 60 ** i for i, part in enumerate(reversed(parts)))
@@ -178,13 +121,17 @@ def _available(entries):
     return tracks, unavailable
 
 
-def _search(query, auth=None):
-    client = authenticated_client(auth) if auth else YTMusic()
+def _search(query):
+    client = YTMusic()
     if query.startswith(('https://', 'http://')):
         video, playlist = music_link(query)
+        if video and playlist == 'RDAMVM' + video:
+            data = client.get_watch_playlist(videoId=video, radio=True, limit=25) or {}
+            entries = (data.get('tracks') or [])[:25]
+            tracks, unavailable = _available(entries)
+            return {'kind': 'radio', 'title': 'Song radio', 'tracks': tracks,
+                    'returned': len(entries), 'unavailable': unavailable}
         if playlist and not video:
-            if auth and str(auth) == str(OAUTH_FILE):
-                return _google_playlist(client, playlist)
             data = client.get_playlist(playlist, limit=None) or {}
             entries = data.get('tracks') or []
             tracks, unavailable = _available(entries)
@@ -270,60 +217,18 @@ def download_audio(track, folder, progress=None):
     return normalize(info), source
 
 
-def _library_playlists(auth):
-    """Read account playlists without exposing login or account details."""
-    try:
-        client = authenticated_client(auth)
-        if str(auth) == str(OAUTH_FILE):
-            entries = _google_pages(client, 'playlists', part='snippet,contentDetails', mine='true')
-            return [_playlist_meta(item['id'], {'title': item['snippet']['title'], 'author': item['snippet'].get('channelTitle'),
-                    'thumbnails': _google_images(item['snippet'])}) for item in entries]
-        if str(auth) != str(OAUTH_FILE) and not client.get_account_info().get('accountName'):
-            raise ValueError('Account validation failed')
-        entries = client.get_library_playlists(limit=None)
-        return [_playlist_meta(item['playlistId'], item) for item in entries
-                if re.fullmatch(r'[\w-]{10,200}', item.get('playlistId') or '', flags=re.ASCII)]
-    except Exception:
-        raise RuntimeError('YouTube library login expired or the service is unavailable. Renew local login and retry.') from None
+def _cache_key(value):
+    return 'public:' + value
 
 
-def _cache_key(value, auth=None):
-    scope = 'public'
-    if auth:
-        try:
-            data = load_private(Path(auth))
-            identity = data.get('refresh_token') or data.get('cookie')
-            if not identity:
-                return None
-            scope = hashlib.sha256(identity.encode()).hexdigest()
-        except (OSError, ValueError, TypeError):
-            return None
-    return scope + ':' + value
+def cached_playlist(query):
+    return disk_cache.get_metadata(_cache_key(query))
 
 
-def cached_playlist(query, auth=None):
-    key = _cache_key(query, auth)
-    return disk_cache.get_metadata(key) if key else None
-
-
-def search(query, auth=None):
+def search(query):
     epoch = disk_cache.generation()
-    key = _cache_key(query, auth)
-    result = _search(query, auth)
+    key = _cache_key(query)
+    result = _search(query)
     if result.get('kind') == 'playlist':
-        if key:
-            disk_cache.put_metadata(key, result, epoch)
-    return result
-
-
-def cached_library(auth):
-    return cached_playlist('account-library', auth)
-
-
-def library_playlists(auth):
-    epoch = disk_cache.generation()
-    key = _cache_key('account-library', auth)
-    result = _library_playlists(auth)
-    if key:
         disk_cache.put_metadata(key, result, epoch)
     return result
