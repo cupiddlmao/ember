@@ -1,0 +1,20 @@
+[package]
+name = "ember-rust"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+
+[dependencies]
+gtk4 = { version = "0.11.5", features = ["v4_12"] }
+gstreamer = "0.25.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0"
+libc = "0.2"
+soup3 = "0.9.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
+[profile.release]
+strip = true
