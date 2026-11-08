@@ -1313,14 +1313,9 @@ button.playlist-nav-row.selected .playlist-nav-meta {
   background: transparent;
 }
 
-flowbox.playlist-hero {
+.playlist-hero {
   background: transparent;
   padding: 12px 0 0;
-}
-
-flowbox.playlist-hero > flowboxchild {
-  padding: 0;
-  background: transparent;
 }
 
 .playlist-eyebrow {

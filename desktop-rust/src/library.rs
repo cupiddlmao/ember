@@ -1143,31 +1143,21 @@ impl LibraryPane {
         };
         let entries = detail.entries.as_deref().unwrap_or_default();
         let urls = cover_urls(entries);
-        let hero = gtk4::FlowBox::new();
+        let hero = gtk4::Box::new(gtk4::Orientation::Horizontal, 22);
         hero.add_css_class("playlist-hero");
-        hero.set_selection_mode(gtk4::SelectionMode::None);
-        hero.set_homogeneous(false);
-        hero.set_min_children_per_line(1);
-        hero.set_max_children_per_line(2);
-        hero.set_column_spacing(22);
-        hero.set_row_spacing(16);
-        hero.set_halign(gtk4::Align::Start);
-        hero.set_hexpand(false);
+        hero.set_hexpand(true);
         hero.set_valign(gtk4::Align::Start);
-        hero.insert(
-            &fixed_cover(
-                &urls,
-                &detail.name,
-                PLAYLIST_COVER_SIZE,
-                true,
-                &self.artwork_loader,
-            ),
-            -1,
+        let cover = fixed_cover(
+            &urls,
+            &detail.name,
+            PLAYLIST_COVER_SIZE,
+            true,
+            &self.artwork_loader,
         );
+        hero.append(&cover);
         let info = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
         info.add_css_class("playlist-hero-info");
-        info.set_hexpand(false);
-        info.set_width_request(500);
+        info.set_hexpand(true);
         info.set_valign(gtk4::Align::Center);
         let eyebrow = label("SHARED PLAYLIST", "playlist-eyebrow");
         let heading = label(&detail.name, "playlist-hero-title");
@@ -1263,7 +1253,7 @@ impl LibraryPane {
         options.set_popover(Some(&options_popover));
         actions.append(&options);
         info.append(&actions);
-        hero.insert(&info, -1);
+        hero.append(&info);
         self.songs.append(&hero);
 
         let songs_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
