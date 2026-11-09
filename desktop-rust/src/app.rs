@@ -85,6 +85,9 @@ pub fn run() -> glib::ExitCode {
 
 fn activate(application: &gtk4::Application) {
     install_css();
+    if let Some(display) = gdk::Display::default() {
+        crate::icons::install(&display);
+    }
 
     let window = gtk4::ApplicationWindow::builder()
         .application(application)

@@ -3,6 +3,7 @@ mod artwork;
 mod bridge;
 mod cache;
 mod config;
+mod icons;
 mod library;
 mod lyrics;
 mod model;
