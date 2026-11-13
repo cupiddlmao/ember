@@ -245,10 +245,7 @@ struct PlaylistDetailView: View {
                         model.play(tracks: tracks, startingAt: item.index)
                     }
                     .contextMenu {
-                        Button { model.startSongRadio(item.track) } label: {
-                            Label(model.radioTrackID == item.track.id ? "Loading radio…" : "Song radio", systemImage: "dot.radiowaves.left.and.right")
-                        }
-                        .disabled(model.radioTrackID == item.track.id)
+                        SongRadioButton(track: item.track)
                         Button("Add to playlist") { addingTrack = item.track }
                         Button {
                             model.playNext(item.track)

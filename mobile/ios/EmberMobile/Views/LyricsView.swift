@@ -19,10 +19,6 @@ struct LyricsView: View {
         _session = StateObject(wrappedValue: LyricsSession(track: track))
     }
 
-    private var synced: Bool {
-        session.lyrics?.kind == "synced"
-    }
-
     private var loadKey: String {
         "\(session.track.id)-\(retryToken)"
     }
@@ -49,18 +45,14 @@ struct LyricsView: View {
                         .padding(.bottom, verticalSizeClass == .compact ? 72 : 132)
                     }
                     .scrollIndicators(.hidden)
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 8)
-                            .onChanged { _ in
-                                if synced && session.following {
-                                    session.following = false
-                                }
-                            }
-                    )
+                    .modifier(PausesLyricsFollow(session: session))
 
-                    if !session.following && synced {
-                        resumeButton(proxy: proxy)
-                            .padding(.bottom, 18)
+                    if !session.following && session.isSynced {
+                        LyricsResumeButton {
+                            session.following = true
+                            scrollLyrics(proxy, to: session.activeIndex, animated: !reduceMotion)
+                        }
+                        .padding(.bottom, 18)
                     }
                 }
                 .onAppear {
@@ -158,7 +150,7 @@ struct LyricsView: View {
                 }
             }
 
-            if synced && !session.isLoading {
+            if session.isSynced && !session.isLoading {
                 timingControls
             }
         }
@@ -257,23 +249,6 @@ struct LyricsView: View {
         .background(EmberTheme.background.opacity(0.94))
     }
 
-    private func resumeButton(proxy: ScrollViewProxy) -> some View {
-        Button {
-            session.following = true
-            scrollLyrics(proxy, to: session.activeIndex, animated: !reduceMotion)
-        } label: {
-            Label("Resume following", systemImage: "arrow.down.to.line")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-
     @MainActor
     private func loadLyrics() async {
         let requested = session.track
@@ -343,6 +318,8 @@ final class LyricsSession: ObservableObject {
         activeIndex = nil
         following = true
     }
+
+    var isSynced: Bool { lyrics?.kind == "synced" }
 
     func sync(time: Double) {
         let selected: Int?
@@ -597,10 +574,6 @@ private struct ImmersiveLyricsView: View {
     let onClose: () -> Void
     let onRetry: () -> Void
 
-    private var synced: Bool {
-        session.lyrics?.kind == "synced"
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let compact = geometry.size.height < 520
@@ -695,30 +668,13 @@ private struct ImmersiveLyricsView: View {
                     .padding(.bottom, compact ? 72 : 118)
                 }
                 .scrollIndicators(.hidden)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 8)
-                        .onChanged { _ in
-                            if synced && session.following {
-                                session.following = false
-                            }
-                        }
-                )
+                .modifier(PausesLyricsFollow(session: session))
 
-                if !session.following && synced {
-                    Button {
+                if !session.following && session.isSynced {
+                    LyricsResumeButton {
                         session.following = true
                         scrollLyrics(proxy, to: session.activeIndex, animated: !reduceMotion)
-                    } label: {
-                        Label("Resume following", systemImage: "arrow.down.to.line")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 11)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
                     .padding(.bottom, 10)
                 }
             }
@@ -732,6 +688,39 @@ private struct ImmersiveLyricsView: View {
                 scrollLyrics(proxy, to: index, animated: !reduceMotion)
             }
         }
+    }
+}
+
+private struct LyricsResumeButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Resume following", systemImage: "arrow.down.to.line")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PausesLyricsFollow: ViewModifier {
+    @ObservedObject var session: LyricsSession
+
+    func body(content: Content) -> some View {
+        content.simultaneousGesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { _ in
+                    if session.isSynced && session.following {
+                        session.following = false
+                    }
+                }
+        )
     }
 }
 

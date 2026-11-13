@@ -212,10 +212,7 @@ struct SharedPlaylistDetailView: View {
                         }
                     }
                     .contextMenu {
-                        Button { model.startSongRadio(entry.track) } label: {
-                            Label(model.radioTrackID == entry.track.id ? "Loading radio…" : "Song radio", systemImage: "dot.radiowaves.left.and.right")
-                        }
-                        .disabled(model.radioTrackID == entry.track.id)
+                        SongRadioButton(track: entry.track)
                         Button("Play next") { model.playNext(entry.track) }
                         Button("Add to queue") { model.addToQueue(entry.track) }
                         Button("Add to playlist") { addingTrack = entry.track }

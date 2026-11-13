@@ -127,21 +127,22 @@ final class LastFMReporter {
             if let event {
                 do {
                     _ = try await api.lastFM(event)
-                    if self.server == targetServer, self.pending.first?["id"] as? String == event["id"] as? String {
-                        self.pending.removeFirst()
-                        self.save()
-                    }
+                    self.completeFirst(event, server: targetServer)
                 } catch APIError.server(let status, _) where status == 400 {
                     // Expired or permanently invalid events must not block later listens.
-                    if self.server == targetServer, self.pending.first?["id"] as? String == event["id"] as? String {
-                        self.pending.removeFirst()
-                        self.save()
-                    }
+                    self.completeFirst(event, server: targetServer)
                 } catch { }
             }
             // Do not send a now-playing update delayed behind an offline scrobble retry.
             if event == nil, let nowBody { _ = try? await api.lastFM(nowBody) }
         }
+    }
+
+    private func completeFirst(_ event: [String: Any], server targetServer: String) {
+        guard server == targetServer,
+              pending.first?["id"] as? String == event["id"] as? String else { return }
+        pending.removeFirst()
+        save()
     }
 
     private func save() {
