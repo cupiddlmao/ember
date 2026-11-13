@@ -75,12 +75,12 @@ final class PlayerController {
 @main
 struct AppModelCheck {
     @MainActor
-    static func waitUntil(_ condition: () -> Bool) async {
+    static func waitUntil(_ label: String, _ condition: () -> Bool) async {
         for _ in 0..<10_000 {
             if condition() { return }
             await Task.yield()
         }
-        preconditionFailure("AppModel did not reach the expected state")
+        preconditionFailure("AppModel did not reach the expected state: \(label)")
     }
 
     @MainActor
@@ -96,7 +96,7 @@ struct AppModelCheck {
 
         // A cancellation-ignoring download must never start after Pause.
         model.play(a)
-        await waitUntil { APIClient.pending[a.id] != nil }
+        await waitUntil("A download requested") { APIClient.pending[a.id] != nil }
         model.player.pause()
         assert(model.preparingEntryID == nil && !model.isPlaybackActive)
         APIClient.pending.removeValue(forKey: a.id)!.resume(returning: file)
@@ -106,24 +106,24 @@ struct AppModelCheck {
 
         // Resume retries the selection, including when no AVPlayer item exists.
         assert(model.player.onResumeRequested?() == true)
-        await waitUntil { APIClient.pending[a.id] != nil }
+        await waitUntil("A download retried") { APIClient.pending[a.id] != nil }
         APIClient.pending.removeValue(forKey: a.id)!.resume(returning: file)
-        await waitUntil { model.player.played == [a.id] }
+        await waitUntil("A playing") { model.player.played == [a.id] }
         assert(model.isCurrentTrackLoaded)
 
         // A failed first item keeps the queue available; Next recovers.
         model.play(tracks: [a, b], startingAt: 0)
-        await waitUntil { APIClient.pending[a.id] != nil }
+        await waitUntil("queue A download requested") { APIClient.pending[a.id] != nil }
         model.player.onTrackEnded?()
         assert(model.currentQueueEntry?.track == a)
         APIClient.pending.removeValue(forKey: a.id)!.resume(throwing: URLError(.cannotLoadFromNetwork))
-        await waitUntil { model.errorMessage != nil }
+        await waitUntil("A failure reported") { model.errorMessage != nil }
         assert(model.player.track == nil)
         assert(model.currentQueueEntry?.track == a && model.queue.upcoming.count == 1)
         model.playNextTrack()
-        await waitUntil { APIClient.pending[b.id] != nil }
+        await waitUntil("B download requested after Next") { APIClient.pending[b.id] != nil }
         APIClient.pending.removeValue(forKey: b.id)!.resume(returning: file)
-        await waitUntil { model.player.played.last == b.id }
+        await waitUntil("B playing") { model.player.played.last == b.id }
         assert(model.currentQueueEntry?.track == b)
         model.disconnect()
         let radioModel = AppModel()
@@ -131,25 +131,25 @@ struct AppModelCheck {
         radioModel.accessKey = "test-only"
         await radioModel.connect()
         radioModel.startSongRadio(a)
-        await waitUntil { APIClient.radioPending[a.id] != nil }
+        await waitUntil("radio requested for A") { APIClient.radioPending[a.id] != nil }
         APIClient.radioPending.removeValue(forKey: a.id)!.resume(returning: [a, b, b])
-        await waitUntil { APIClient.pending[a.id] != nil }
+        await waitUntil("radio queue starts A") { APIClient.pending[a.id] != nil }
         assert(radioModel.currentQueueEntry?.track == a && radioModel.queue.upcoming.count == 1)
         radioModel.disconnect()
         APIClient.pending.removeValue(forKey: a.id)!.resume(returning: file)
         for _ in 0..<100 { await Task.yield() }
         await radioModel.connect()
         radioModel.startSongRadio(a)
-        await waitUntil { APIClient.radioPending[a.id] != nil }
+        await waitUntil("radio requested after reconnect") { APIClient.radioPending[a.id] != nil }
         radioModel.play(b)
-        await waitUntil { APIClient.pending[b.id] != nil }
+        await waitUntil("B download requested during radio") { APIClient.pending[b.id] != nil }
         APIClient.radioPending.removeValue(forKey: a.id)!.resume(returning: [b])
         for _ in 0..<100 { await Task.yield() }
         assert(radioModel.currentQueueEntry?.track == b, "late radio response replaced newer playback")
         radioModel.startSongRadio(a)
-        await waitUntil { APIClient.radioPending[a.id] != nil }
+        await waitUntil("radio requested for empty result") { APIClient.radioPending[a.id] != nil }
         APIClient.radioPending.removeValue(forKey: a.id)!.resume(returning: [])
-        await waitUntil { radioModel.radioTrackID == nil }
+        await waitUntil("empty radio clears loading") { radioModel.radioTrackID == nil }
         assert(radioModel.currentQueueEntry?.track == b && radioModel.errorMessage != nil)
         radioModel.disconnect()
         APIClient.pending.removeValue(forKey: b.id)!.resume(returning: file)
