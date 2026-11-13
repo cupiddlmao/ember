@@ -32,6 +32,7 @@
 		CC0000000000000000000017 /* SharedLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000018 /* SharedLibraryModel.swift */; };
 		CC0000000000000000000018 /* SharedPlaylistViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000019 /* SharedPlaylistViews.swift */; };
 		CC0000000000000000000019 /* LastFMReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001A /* LastFMReporter.swift */; };
+		CC000000000000000000001A /* TrackActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000000000000000000001B /* TrackActions.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +63,7 @@
 		BB0000000000000000000018 /* SharedLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLibraryModel.swift; sourceTree = "<group>"; };
 		BB0000000000000000000019 /* SharedPlaylistViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedPlaylistViews.swift; sourceTree = "<group>"; };
 		BB000000000000000000001A /* LastFMReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFMReporter.swift; sourceTree = "<group>"; };
+		BB000000000000000000001B /* TrackActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackActions.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0000000000000000000019 /* SharedPlaylistViews.swift */,
+				BB000000000000000000001B /* TrackActions.swift */,
 				BB0000000000000000000008 /* RootView.swift */,
 				BB0000000000000000000009 /* ConnectionView.swift */,
 				BB000000000000000000000A /* SearchView.swift */,
@@ -218,6 +221,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CC0000000000000000000019 /* LastFMReporter.swift in Sources */,
+				CC000000000000000000001A /* TrackActions.swift in Sources */,
 				CC0000000000000000000018 /* SharedPlaylistViews.swift in Sources */,
 				CC0000000000000000000017 /* SharedLibraryModel.swift in Sources */,
 				CC0000000000000000000001 /* EmberMobileApp.swift in Sources */,

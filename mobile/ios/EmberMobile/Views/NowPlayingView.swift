@@ -66,10 +66,7 @@ struct NowPlayingView: View {
             HStack(spacing: 8) {
                 Menu {
                     if let track = model.queue.current?.track {
-                        Button { model.startSongRadio(track) } label: {
-                            Label(model.radioTrackID == track.id ? "Loading radio…" : "Song radio", systemImage: "dot.radiowaves.left.and.right")
-                        }
-                        .disabled(model.radioTrackID == track.id)
+                        SongRadioButton(track: track)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")

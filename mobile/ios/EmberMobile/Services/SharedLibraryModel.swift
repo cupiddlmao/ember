@@ -159,16 +159,14 @@ final class SharedLibraryModel: ObservableObject {
             isOnline = false
             switch error {
             case APIError.server(let status, _) where [400, 401, 404, 409, 413, 415].contains(status):
-                pending = nil // These responses explicitly reject the mutation.
-                do { try saveCache() } catch { pending = mutation }
+                rejectPending(mutation)
                 if status == 409 {
                     errorMessage = "This playlist changed on another device. Reload it, then make your edit again."
                 } else {
                     errorMessage = error.localizedDescription
                 }
             case APIError.invalidConfiguration:
-                pending = nil
-                do { try saveCache() } catch { pending = mutation }
+                rejectPending(mutation)
                 errorMessage = error.localizedDescription
             default:
                 // Transport, malformed success and 5xx are ambiguous: retain the exact save.
@@ -176,6 +174,13 @@ final class SharedLibraryModel: ObservableObject {
             }
             return false
         }
+    }
+
+    /// Responses that explicitly reject the mutation must not leave a retry record
+    /// behind, but a failed rewrite of the cache must keep it.
+    private func rejectPending(_ mutation: LibraryMutation) {
+        pending = nil
+        do { try saveCache() } catch { pending = mutation }
     }
 
     private struct DiskState: Codable {
