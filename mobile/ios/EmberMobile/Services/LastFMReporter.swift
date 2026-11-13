@@ -35,13 +35,16 @@ final class LastFMReporter {
     private var connected = false
     private var account = ""
     private var lastStatus = -Double.infinity
+    private let outboxURL: URL?
 
     private var file: URL? {
+        if let outboxURL { return outboxURL }
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         return root.appendingPathComponent("Ember/lastfm-outbox.json")
     }
 
-    init() {
+    init(outboxURL: URL? = nil) {
+        self.outboxURL = outboxURL
         if let file, let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
            let size = attributes[.size] as? NSNumber, size.intValue <= 1048576,
            let data = try? Data(contentsOf: file),
@@ -151,7 +154,11 @@ final class LastFMReporter {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
             let data = try JSONSerialization.data(withJSONObject: ["server": server, "account": account, "pending": pending])
+            #if os(iOS)
             try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            #else
+            try data.write(to: file, options: .atomic)
+            #endif
         } catch { /* A storage failure must not interrupt audio playback. */ }
     }
 }
