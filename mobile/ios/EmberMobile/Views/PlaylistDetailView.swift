@@ -9,6 +9,7 @@ struct IndexedTrack: Identifiable {
 struct PlaylistDetailView: View {
     let playlist: SavedPlaylist
 
+    @State private var addingTrack: Track?
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
@@ -68,6 +69,7 @@ struct PlaylistDetailView: View {
                 .accessibilityLabel("Playlist actions")
             }
         }
+        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
         .task { await loadAll() }
     }
 
@@ -243,6 +245,11 @@ struct PlaylistDetailView: View {
                         model.play(tracks: tracks, startingAt: item.index)
                     }
                     .contextMenu {
+                        Button { model.startSongRadio(item.track) } label: {
+                            Label(model.radioTrackID == item.track.id ? "Loading radio…" : "Song radio", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .disabled(model.radioTrackID == item.track.id)
+                        Button("Add to playlist") { addingTrack = item.track }
                         Button {
                             model.playNext(item.track)
                         } label: {
@@ -262,13 +269,8 @@ struct PlaylistDetailView: View {
     }
 
     private var visibleTracks: [IndexedTrack] {
-        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else {
-            return tracks.enumerated().map { IndexedTrack(index: $0.offset, track: $0.element) }
-        }
-        return tracks.enumerated().compactMap { index, track in
-            let haystack = "\(track.title) \(track.artist) \(track.album)".lowercased()
-            return haystack.contains(needle) ? IndexedTrack(index: index, track: track) : nil
+        tracks.enumerated().compactMap { index, track in
+            track.matchesPlaylistSearch(searchText) ? IndexedTrack(index: index, track: track) : nil
         }
     }
 

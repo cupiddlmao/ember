@@ -27,6 +27,8 @@ This milestone adds a saved playlist library, ordered queue playback, and synced
   - Search the loaded tracks locally; the backend also supports a search query for API consumers.
   - Start playback at any track, play all in order, or shuffle the full playlist.
   - A playlist over the 5,000-track safety limit fails visibly instead of returning a partial list.
+- Shared Ember playlists: search titles, artists and albums locally, including cached playlists. Search ignores case and accents; tapping a result starts at its original full-playlist position. Swipe-delete targets the exact occurrence; clear search before reordering.
+- Song radio in search/shared/provider track menus and Now Playing song options: Last.fm chooses recommendations on the backend, YouTube Music supplies matched recordings. No personal Last.fm login required. Starts the selected seed and a finite related queue; failures preserve the queue. Requires updated backend and IPA.
 - Queue playback:
   - Tap a track to start it; the rest of the loaded playlist remains in queue order.
   - **Play Next** and **Add to Queue** are available from search results and playlist rows.
@@ -38,10 +40,13 @@ This milestone adds a saved playlist library, ordered queue playback, and synced
   - Queue state is in memory and is reset when the app process is recreated. The library only persists metadata.
 - Synced lyrics:
   - Opens from Now Playing; lines highlight from local player time.
-  - Timed lines are buttons; tapping one seeks to that line.
+  - Timed lines are buttons; tapping one seeks to that line and resumes following.
   - Per-track sync offset: **Earlier** and **Later** shift lyric presentation in 0.25-second steps within ±5 seconds. Positive values make lyrics appear later; negative values make them appear earlier. The offset is saved locally by track ID, and **Reset** returns to 0. It only changes highlighting, scrolling, and tap-to-seek targets; adjusting it never seeks, changes speed, or moves the audio. The controls appear only for synced lyrics.
   - Manual scrolling pauses auto-follow and shows a **Resume** control. Dragging during playback does not seek.
   - Large, high-contrast lyric presentation with an artwork-derived background.
+  - The expand control opens an immersive full-screen reading view. It shares one `LyricsSession` with the sheet, so expanding does not refetch lyrics, move the playhead or lose the saved sync offset. The header's collapse button and a downward drag remain available while loading, empty or failed; the sheet keeps its standard drag dismissal.
+  - Both presentations use the same centered typography hierarchy, charcoal artwork scrim, color-only active line (white with explicitly timed pink words), quieter surrounding lines and compact previous/play/next controls. Row geometry never changes as timing advances, and both presentations respect Reduce Motion when scrolling.
+  - Dynamic Type sizes the lyrics and header metadata; safe areas are respected in portrait and landscape. A queue track change replaces the lyric session in place, so the expanded view cannot show the previous recording's lyrics.
   - Honest states for line-synced lyrics, plain lyrics, instrumentals, no match, loading, and provider errors.
   - Word highlighting is used only when the provider explicitly supplies word-level timestamps. If a word has no end time, the next supplied word start is used as its visual boundary; no end time is invented. LRC word tags are not converted into guessed word timings.
 - Existing playback behavior retained: local M4A download/playback, 512 MiB LRU cache, `.playback` audio session, interruption/headphone handling, background audio, lock-screen metadata/artwork, play/pause, seeking, skip, and ±15 seconds.
@@ -246,7 +251,7 @@ The workflow is `.github/workflows/ios-unsigned.yml`. It is **manual only** (`wo
 3. Wait for the build. On success, download the **EmberMobile-unsigned-ipa** artifact; it contains `EmberMobile-unsigned.ipa`.
 4. Unzip the artifact if your browser downloaded it as a `.zip`.
 
-Before the device build, the workflow runs the audio-cache, queue, app-model, and lyric-timing self-checks. `QueueCheck` covers queue ordering, duplicate entries, start-at-track, remove/reorder/clear, previous/end behavior, and stale generation rejection. `LyricsTimingCheck` covers offset direction, the ±5-second bounds, and the reversed tap-to-seek conversion.
+Before the device build, the workflow runs the audio-cache, queue, app-model, and lyric-timing self-checks. `QueueCheck` covers queue ordering, duplicate entries, start-at-track, remove/reorder/clear, previous/end behavior, and stale generation rejection. `LyricsTimingCheck` covers offset direction, the ±5-second bounds, the reversed tap-to-seek conversion, and active-line selection under positive and negative offsets.
 
 The workflow builds with:
 
@@ -424,3 +429,7 @@ The new macOS `SharedLibraryCheck.swift` uses URLProtocol fixtures to check auth
 routes, identical persisted retry payloads, duplicate IDs, conflicts and offline/server
 cache isolation. It has not been executed on Linux; SwiftUI rendering and compilation
 require Xcode/macOS.
+
+### Last.fm
+
+Settings → Last.fm connects the backend once for both clients. Playback reporting excludes pauses, buffering and seek jumps. See [setup and offline limits](backend/LASTFM.md).

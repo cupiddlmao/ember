@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @StateObject private var library = SharedLibraryModel()
 
     var body: some View {
         ZStack {
@@ -15,6 +16,11 @@ struct RootView: View {
                 ConnectionView()
             }
         }
+        .environmentObject(library)
+        .task(id: model.client?.identity) {
+            library.configure(model.client)
+            await library.refresh()
+        }
         .preferredColorScheme(.dark)
         .task {
             await model.restoreSession()
@@ -24,9 +30,11 @@ struct RootView: View {
             case .nowPlaying:
                 NowPlayingView(player: model.player)
                     .environmentObject(model)
+                    .environmentObject(library)
             case .settings:
                 SettingsView()
                     .environmentObject(model)
+                    .environmentObject(library)
             }
         }
         .alert(

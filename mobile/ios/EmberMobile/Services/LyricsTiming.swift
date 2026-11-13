@@ -23,6 +23,25 @@ enum LyricsTiming {
         max(0, start + normalized(offset))
     }
 
+    static func activeLineIndex(
+        in lines: [LyricsLine],
+        playbackTime: Double,
+        offset: Double
+    ) -> Int? {
+        guard playbackTime.isFinite else { return nil }
+        let lyricTime = lyricTime(forPlaybackTime: playbackTime, offset: offset)
+        var selected: Int?
+        for (index, line) in lines.enumerated() {
+            guard let start = line.start else { continue }
+            if start <= lyricTime + 0.08 {
+                selected = index
+            } else {
+                break
+            }
+        }
+        return selected
+    }
+
     static func offsetText(_ offset: Double) -> String {
         let value = normalized(offset)
         if value == 0 { return "0.00 s" }

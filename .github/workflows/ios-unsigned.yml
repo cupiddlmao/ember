@@ -32,6 +32,26 @@ jobs:
             -o /tmp/ember-cache-check
           /tmp/ember-cache-check
 
+      - name: Check shared playlist retries, conflicts, and private offline cache
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/SharedLibraryModel.swift \
+            mobile/ios/tests/SharedLibraryCheck.swift \
+            -o /tmp/ember-library-check
+          /tmp/ember-library-check
+
+      - name: Check Last.fm listening excludes pause, buffering and seeks
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/LastFMReporter.swift \
+            mobile/ios/tests/LastFMCheck.swift \
+            -o /tmp/ember-lastfm-check
+          /tmp/ember-lastfm-check
+
       - name: Check queue ordering and stale-request invalidation
         run: |
           swiftc -parse-as-library \
@@ -54,6 +74,7 @@ jobs:
       - name: Check lyric timing offset direction, bounds, and seeking
         run: |
           swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
             mobile/ios/EmberMobile/Services/LyricsTiming.swift \
             mobile/ios/tests/LyricsTimingCheck.swift \
             -o /tmp/ember-lyrics-timing-check

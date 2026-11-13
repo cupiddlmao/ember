@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SearchView: View {
+    @State private var addingTrack: Track?
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
@@ -9,6 +10,7 @@ struct SearchView: View {
             searchField
             content
         }
+        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
         .onChange(of: model.searchText) { _, _ in
             model.scheduleSearch()
         }
@@ -102,6 +104,11 @@ struct SearchView: View {
                             model.play(track)
                         }
                         .contextMenu {
+                            Button { model.startSongRadio(track) } label: {
+                                Label(model.radioTrackID == track.id ? "Loading radio…" : "Song radio", systemImage: "dot.radiowaves.left.and.right")
+                            }
+                            .disabled(model.radioTrackID == track.id)
+                            Button("Add to playlist") { addingTrack = track }
                             Button {
                                 model.playNext(track)
                             } label: {

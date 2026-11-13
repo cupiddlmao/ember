@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRestoring = true
     @Published private(set) var connectionError: String?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var radioTrackID: String?
     @Published private(set) var preparingTrackID: String?
     @Published private(set) var preparingEntryID: UUID?
     @Published private(set) var queue = PlaybackQueue()
@@ -28,6 +29,8 @@ final class AppModel: ObservableObject {
     let player = PlayerController()
 
     @Published private(set) var client: APIClient? = nil
+    private var radioTask: Task<Void, Never>?
+    private var radioToken = UUID()
     private var searchTask: Task<Void, Never>?
     private var preparationTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
@@ -41,6 +44,7 @@ final class AppModel: ObservableObject {
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? ""
         accessKey = ""
         savedPlaylists = PlaylistStore.load()
+        player.lastFM.client = { [weak self] in self?.client }
         player.onTrackEnded = { [weak self] in
             self?.advanceQueueAfterEnd()
         }
@@ -135,6 +139,7 @@ final class AppModel: ObservableObject {
     }
 
     func disconnect() {
+        cancelRadio()
         searchTask?.cancel()
         searchTask = nil
         preparationTask?.cancel()
@@ -178,6 +183,41 @@ final class AppModel: ObservableObject {
         guard query.count >= 2 else { return }
         searchTask?.cancel()
         searchTask = Task { await performSearch(query) }
+    }
+
+    private func cancelRadio() {
+        radioToken = UUID()
+        radioTask?.cancel()
+        radioTask = nil
+        radioTrackID = nil
+    }
+
+    func startSongRadio(_ seed: Track) {
+        guard let api = client else { return }
+        cancelRadio()
+        let token = radioToken
+        radioTrackID = seed.id
+        errorMessage = nil
+        radioTask = Task { [weak self] in
+            do {
+                let recommendations = try await api.radio(for: seed)
+                guard let self, !Task.isCancelled, self.radioToken == token else { return }
+                self.radioTask = nil
+                self.radioTrackID = nil
+                var seen: Set<String> = [seed.id]
+                let related = recommendations.filter { seen.insert($0.id).inserted }
+                guard !related.isEmpty else {
+                    self.errorMessage = "No matching Last.fm recommendations were found. Your queue is unchanged."
+                    return
+                }
+                self.play(tracks: [seed] + related, startingAt: 0)
+            } catch {
+                guard let self, !Task.isCancelled, self.radioToken == token else { return }
+                self.radioTask = nil
+                self.radioTrackID = nil
+                self.errorMessage = "Song radio unavailable. \(error.localizedDescription) Your queue is unchanged."
+            }
+        }
     }
 
     func play(_ track: Track) {
@@ -318,6 +358,7 @@ final class AppModel: ObservableObject {
     }
 
     private func beginPlayback(_ entry: QueueEntry, presentPlayer: Bool) {
+        cancelRadio()
         guard let api = client else { return }
         player.pause()
         playingEntryID = nil
@@ -368,6 +409,7 @@ final class AppModel: ObservableObject {
     }
 
     private func cancelPreparation() {
+        cancelRadio()
         guard preparingEntryID != nil else { return }
         playbackGate.next()
         preparationTask?.cancel()
