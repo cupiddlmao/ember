@@ -138,6 +138,8 @@ struct AppModelCheck {
         radioModel.disconnect()
         APIClient.pending.removeValue(forKey: a.id)!.resume(returning: file)
         for _ in 0..<100 { await Task.yield() }
+        // disconnect() clears the key; reconnect needs it again in the test.
+        radioModel.accessKey = "test-only"
         await radioModel.connect()
         radioModel.startSongRadio(a)
         await waitUntil("radio requested after reconnect") { APIClient.radioPending[a.id] != nil }
