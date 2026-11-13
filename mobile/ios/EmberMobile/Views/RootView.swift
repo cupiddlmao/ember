@@ -30,11 +30,9 @@ struct RootView: View {
             case .nowPlaying:
                 NowPlayingView(player: model.player)
                     .environmentObject(model)
-                    .environmentObject(library)
             case .settings:
                 SettingsView()
                     .environmentObject(model)
-                    .environmentObject(library)
             }
         }
         .alert(
