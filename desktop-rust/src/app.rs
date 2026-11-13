@@ -1,8 +1,13 @@
-use crate::artwork::{ArtworkLoader, ArtworkSlot, artwork_view};
-use crate::bridge::{BridgePayload, BridgeService, JobKind, JobResult, normalize_query};
+use crate::artwork::{artwork_view, ArtworkLoader, ArtworkSlot};
+use crate::bridge::{normalize_query, BridgePayload, BridgeService, JobKind, JobResult};
 use crate::config::BridgeConfig;
+use crate::home::{SessionGroup, group_session};
 use crate::lyrics::{LyricsData, LyricsKind};
 use crate::model::{ResolveData, Track};
+use crate::mpris::{
+    Command as MprisCommand, Mpris, Playback as MprisPlayback, State as MprisState,
+    TrackInfo as MprisTrack,
+};
 use crate::playback::{PauseAction, PlayAction, PlaybackState, ResolveDisposition};
 use crate::player::{Player, PlayerEvent, PlayerEventKind};
 use crate::queue::{EntryId, Queue, QueueEntry};
@@ -14,8 +19,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const DEFAULT_VOLUME: f64 = 0.7;
-const SIDEBAR_WIDTH: i32 = 204;
-const SIDE_PANEL_WIDTH: i32 = 340;
+const SIDEBAR_WIDTH: i32 = 232;
+const SIDE_PANEL_WIDTH: i32 = 360;
 const HOME_CARD_GAP: u32 = 18;
 const HOME_CARD_MIN_WIDTH: i32 = 150;
 const PROGRESS_MAX: f64 = 1000.0;
@@ -76,9 +81,12 @@ glib::wrapper! {
 }
 
 pub fn run() -> glib::ExitCode {
-    let application = gtk4::Application::builder()
-        .application_id("io.ember.RustPreview")
-        .build();
+    let mut builder = gtk4::Application::builder().application_id("io.ember.RustPreview");
+    if crate::viewport::capture_size().is_some() {
+        // A sized capture must not be forwarded to an already-running Ember.
+        builder = builder.flags(gtk4::gio::ApplicationFlags::NON_UNIQUE);
+    }
+    let application = builder.build();
     application.connect_activate(activate);
     application.run()
 }
@@ -89,23 +97,32 @@ fn activate(application: &gtk4::Application) {
         crate::icons::install(&display);
     }
 
+    let (default_width, default_height) = crate::viewport::capture_size()
+        .unwrap_or((crate::viewport::DEFAULT_WIDTH, crate::viewport::DEFAULT_HEIGHT));
     let window = gtk4::ApplicationWindow::builder()
         .application(application)
         .title("Ember")
-        .default_width(1180)
-        .default_height(760)
+        .default_width(default_width)
+        .default_height(default_height)
         .build();
-    window.set_size_request(780, 580);
+    window.set_size_request(crate::viewport::MIN_WIDTH, crate::viewport::MIN_HEIGHT);
 
     let sidebar = build_sidebar();
+    let home = build_home_page();
     let settings = build_settings_window(&window);
     let settings_window = settings.0.clone();
     sidebar.settings_button.connect_clicked(move |_| {
         settings_window.present();
     });
     let (library_tx, library_rx) = mpsc::channel();
-    let library = crate::library::LibraryPane::new(&window, library_tx);
-    let home = build_home_page();
+    let artwork_loader = Rc::new(RefCell::new(ArtworkLoader::default()));
+    let library = crate::library::LibraryPane::new(
+        &window,
+        library_tx,
+        artwork_loader.clone(),
+        &sidebar.playlists_slot,
+        &home.playlists_slot,
+    );
     let search = build_search_page();
     let player = build_player_bar();
     let add_playing = icon_button("list-add-symbolic", "Add current song to playlist");
@@ -125,27 +142,13 @@ fn activate(application: &gtk4::Application) {
     main_stack.set_hexpand(true);
     main_stack.set_vexpand(true);
     main_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
-    main_stack.set_transition_duration(120);
+    main_stack.set_transition_duration(crate::motion::PAGE.as_millis() as u32);
     main_stack.add_named(&home.page, Some("home"));
     main_stack.add_named(&library.borrow().page, Some("library"));
     main_stack.add_named(&search.page, Some("search"));
     main_stack.set_visible_child_name("home");
 
-    let status_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    status_row.add_css_class("status-strip");
-    status_row.set_margin_start(24);
-    status_row.set_margin_end(24);
-    status_row.set_margin_top(5);
-    status_row.set_margin_bottom(7);
-    let spinner = gtk4::Spinner::new();
-    spinner.set_visible(false);
-    spinner.set_size_request(14, 14);
-    let status_label = label("Ready.", "status-line");
-    status_label.set_hexpand(true);
-    status_label.set_ellipsize(pango::EllipsizeMode::End);
-    status_label.set_max_width_chars(96);
-    status_row.append(&spinner);
-    status_row.append(&status_label);
+    let notice = crate::notice::Notice::new();
 
     let main = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     main.add_css_class("main-view");
@@ -153,7 +156,6 @@ fn activate(application: &gtk4::Application) {
     main.set_vexpand(true);
     main.append(&setup_label);
     main.append(&main_stack);
-    main.append(&status_row);
 
     let body = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     body.set_hexpand(true);
@@ -164,17 +166,26 @@ fn activate(application: &gtk4::Application) {
     let body_overlay = gtk4::Overlay::new();
     body_overlay.set_child(Some(&body));
     let side_panel = build_side_panel();
-    side_panel.container.set_halign(gtk4::Align::End);
+    side_panel.container.set_halign(gtk4::Align::Fill);
     side_panel.container.set_valign(gtk4::Align::Fill);
     side_panel.container.set_margin_top(10);
     side_panel.container.set_margin_bottom(10);
     side_panel.container.set_margin_end(10);
-    body_overlay.add_overlay(&side_panel.container);
+    let side_revealer = gtk4::Revealer::new();
+    side_revealer.set_transition_type(gtk4::RevealerTransitionType::SlideRight);
+    side_revealer.set_transition_duration(crate::motion::PAGE.as_millis() as u32);
+    side_revealer.set_halign(gtk4::Align::End);
+    side_revealer.set_valign(gtk4::Align::Fill);
+    side_revealer.set_child(Some(&side_panel.container));
+    body_overlay.add_overlay(&side_revealer);
+    body_overlay.add_overlay(&notice.widget);
     window.set_child(Some(&body_overlay));
-    window.set_titlebar(Some(&player.header));
+    window.set_titlebar(Some(&player.titlebar));
 
     let (tx, rx) = mpsc::channel();
     let (player_tx, player_rx) = mpsc::channel();
+    let (mpris_tx, mpris_rx) = mpsc::channel();
+    let mpris = Mpris::start(mpris_tx);
     let mut setup_messages = Vec::new();
     let bridge = match BridgeConfig::discover() {
         Ok(config) => match BridgeService::new(config, tx) {
@@ -201,10 +212,7 @@ fn activate(application: &gtk4::Application) {
     if setup_failed {
         setup_label.set_text(&setup_messages.join("\n\n"));
         setup_label.set_visible(true);
-        status_label.set_text("Setup needs attention.");
-        status_label.add_css_class("error");
-    } else {
-        status_label.set_text("Ready.");
+        notice.show("Setup needs attention.", true);
     }
     sidebar.search_entry.set_sensitive(bridge.is_some());
     sidebar.search_button.set_sensitive(bridge.is_some());
@@ -218,23 +226,19 @@ fn activate(application: &gtk4::Application) {
     player.progress_scale.set_sensitive(false);
 
     let progress_suppress = Rc::new(Cell::new(false));
-    let artwork_loader = Rc::new(RefCell::new(ArtworkLoader::default()));
+    let volume_suppress = Rc::new(Cell::new(false));
     let ui = Rc::new(RefCell::new(AppUi {
         window: window.clone(),
         search_entry: sidebar.search_entry,
         search_button: sidebar.search_button,
-        spinner,
-        status_label,
+        notice,
         main_stack,
         library: library.clone(),
         library_seq: 0,
         nav_library: sidebar.library_button,
         nav_home: sidebar.home_button,
         nav_search: sidebar.search_button_nav,
-        nav_queue: sidebar.queue_button,
-        queue_nav_count: sidebar.queue_count,
-        home_stack: home.stack,
-        home_search_button: home.search_button,
+        session_section: home.session_section,
         recent_flow: home.recent_flow,
         recent_count: home.recent_count,
         empty_label: search.empty_label,
@@ -250,8 +254,13 @@ fn activate(application: &gtk4::Application) {
         next_button: player.next_button,
         volume_scale: player.volume_scale,
         volume: DEFAULT_VOLUME * 100.0,
+        volume_suppress,
         progress_scale: player.progress_scale,
         progress_time: player.progress_time,
+        now_playing: player.now_playing,
+        volume_box: player.volume_box,
+        titlebar: player.titlebar,
+        compact: Cell::new(false),
         progress_suppress,
         player_art: player.artwork,
         artwork_loader,
@@ -261,14 +270,20 @@ fn activate(application: &gtk4::Application) {
         player_tx,
         player: None,
         player_ready,
+        mpris: Some(mpris),
         queue: Queue::default(),
+        lastfm: Rc::new(RefCell::new(crate::lastfm::Reporter::default())),
         playback: PlaybackState::default(),
         prepared: None,
         cached_playback: None,
         search_seq: 0,
+        radio_task: None,
+        radio_generation: 0,
         resolve_seq: 0,
-        side_panel: side_panel.container,
+        side_panel: side_revealer,
+        panel_open: Cell::new(false),
         side_close: side_panel.close,
+        side_fullscreen: side_panel.fullscreen,
         side_title: side_panel.title,
         side_stack: side_panel.stack,
         queue_toggle: player.queue_toggle,
@@ -298,6 +313,7 @@ fn activate(application: &gtk4::Application) {
         lyrics_line_widgets: Vec::new(),
         lyrics_suppress_scroll: Rc::new(Cell::new(false)),
         lyrics_scroll_animation: None,
+        lyrics_fullscreen: None,
         self_weak: Weak::new(),
         closing: false,
     }));
@@ -308,6 +324,14 @@ fn activate(application: &gtk4::Application) {
     ui.borrow_mut().sync_nav();
     ui.borrow_mut().refresh_transport();
     ui.borrow_mut().refresh_progress();
+
+    let weak_ui = Rc::downgrade(&ui);
+    ui.borrow().titlebar.on_width(move |width| {
+        if let Some(ui) = weak_ui.upgrade() {
+            ui.borrow_mut()
+                .set_compact_player(crate::responsive::compact_player(width));
+        }
+    });
 
     let weak_ui = Rc::downgrade(&ui);
     settings.1.connect_toggled(move |toggle| {
@@ -368,10 +392,22 @@ fn activate(application: &gtk4::Application) {
             Err(message) => feedback.set_text(&message),
         }
     });
-    install_callbacks(&ui, rx, player_rx, library_rx);
+    install_callbacks(&ui, rx, player_rx, library_rx, mpris_rx);
     crate::library::LibraryPane::request(&library, serde_json::json!({"operation":"refresh"}));
     ui.borrow().window.present();
-    ui.borrow().search_entry.grab_focus();
+}
+
+fn settings_help(text: &str) -> gtk4::Label {
+    let help = label(text, "settings-help");
+    help.set_wrap(true);
+    help.set_max_width_chars(56);
+    help
+}
+
+fn settings_divider() -> gtk4::Separator {
+    let divider = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    divider.add_css_class("settings-divider");
+    divider
 }
 
 fn build_settings_window(
@@ -390,47 +426,98 @@ fn build_settings_window(
         .transient_for(parent)
         .modal(true)
         .hide_on_close(true)
-        .default_width(420)
-        .resizable(false)
+        .default_width(480)
+        .default_height(640)
+        .resizable(true)
         .build();
-    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 16);
-    content.set_margin_top(24);
+    window.add_css_class("settings-window");
+
+    let scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .has_frame(false)
+        .vexpand(true)
+        .build();
+    scroll.add_css_class("settings-scroll");
+    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 18);
+    content.add_css_class("settings-content");
+    content.set_margin_top(28);
     content.set_margin_bottom(24);
-    content.set_margin_start(24);
-    content.set_margin_end(24);
-    content.append(&label("Audio cache", "page-title"));
+    content.set_margin_start(28);
+    content.set_margin_end(28);
+    scroll.set_child(Some(&content));
+
+    content.append(&label("Settings", "settings-title"));
+
+    let playback = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+    playback.add_css_class("settings-section");
+    playback.append(&label("Playback", "settings-heading"));
     let enabled = gtk4::CheckButton::with_label("Automatically cache played songs");
     enabled.set_active(crate::cache::enabled());
-    content.append(&enabled);
-    let explanation = label(
-        "Repeat plays use local audio. The 2 GiB cache removes least recently used songs automatically. New songs stream immediately while a separate download saves a copy.",
-        "secondary",
-    );
-    explanation.set_wrap(true);
-    explanation.set_max_width_chars(45);
-    content.append(&explanation);
+    enabled.add_css_class("settings-check");
+    playback.append(&enabled);
+    playback.append(&settings_help(
+        "Played songs stay available for repeat listening. After 2 GiB, Ember removes the least recently used downloads.",
+    ));
     let clear = gtk4::Button::with_label("Clear audio cache");
-    content.append(&clear);
-    content.append(&label("Shared playlists", "section-title"));
+    clear.add_css_class("settings-secondary");
+    clear.set_halign(gtk4::Align::Start);
+    playback.append(&clear);
+    content.append(&playback);
+
+    content.append(&settings_divider());
+
+    let shared = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+    shared.add_css_class("settings-section");
+    shared.append(&label("Shared library", "settings-heading"));
+    shared.append(&settings_help(
+        "Use the same Ember server as your phone. The access key stays on this PC in an owner-only file.",
+    ));
+    shared.append(&label("Server", "settings-label"));
     let server = gtk4::Entry::new();
     server.set_placeholder_text(Some("https://your-server/ember"));
     server.set_max_length(2048);
     server.set_tooltip_text(Some("Same Ember server address as your iPhone"));
-    content.append(&server);
+    server.add_css_class("settings-entry");
+    shared.append(&server);
+    shared.append(&label("Access key", "settings-label"));
     let key = gtk4::PasswordEntry::new();
     key.set_placeholder_text(Some("Ember access key"));
     key.set_show_peek_icon(true);
-    content.append(&key);
-    let save = gtk4::Button::with_label("Save playlist connection");
-    content.append(&save);
-    let feedback = label(
-        "Access key is stored in an owner-only file on this PC.",
-        "secondary",
-    );
-    feedback.set_wrap(true);
-    feedback.set_max_width_chars(45);
-    content.append(&feedback);
+    key.add_css_class("settings-entry");
+    shared.append(&key);
+    let save = gtk4::Button::with_label("Save connection");
+    save.add_css_class("accent");
+    save.add_css_class("settings-save");
+    save.set_halign(gtk4::Align::Start);
+    shared.append(&save);
+    let feedback =
+        settings_help("Connecting lets Ember load the playlists you share with your phone.");
+    shared.append(&feedback);
+    let lastfm = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+    lastfm.add_css_class("settings-lastfm");
+    crate::lastfm::settings(&lastfm);
+    shared.append(&lastfm);
+    content.append(&shared);
+
+    content.append(&settings_divider());
+
+    let about = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+    about.add_css_class("settings-section");
+    about.append(&label("About", "settings-heading"));
+    about.append(&label("Ember for desktop", "settings-about-title"));
+    about.append(&label(
+        &format!("Version {} · native desktop", env!("CARGO_PKG_VERSION")),
+        "settings-label",
+    ));
+    about.append(&settings_help(
+        "Your playlists live on your Ember server. Preferences and cached audio stay on this PC.",
+    ));
+    content.append(&about);
+
     let close = gtk4::Button::with_label("Done");
+    close.add_css_class("settings-secondary");
+    close.set_halign(gtk4::Align::End);
     let weak_window = window.downgrade();
     close.connect_clicked(move |_| {
         if let Some(window) = weak_window.upgrade() {
@@ -438,7 +525,8 @@ fn build_settings_window(
         }
     });
     content.append(&close);
-    window.set_child(Some(&content));
+
+    window.set_child(Some(&scroll));
     (window, enabled, clear, server, key, save, feedback)
 }
 
@@ -450,8 +538,7 @@ struct SidebarParts {
     search_button: gtk4::Button,
     home_button: gtk4::Button,
     search_button_nav: gtk4::Button,
-    queue_button: gtk4::Button,
-    queue_count: gtk4::Label,
+    playlists_slot: gtk4::Box,
 }
 
 fn build_sidebar() -> SidebarParts {
@@ -494,35 +581,20 @@ fn build_sidebar() -> SidebarParts {
     search_row.append(&search_entry);
     container.append(&search_row);
 
-    let section = label("Session", "sidebar-section");
-    section.set_margin_start(18);
-    section.set_margin_top(11);
-    section.set_margin_bottom(5);
-    container.append(&section);
-
     let nav = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
     nav.set_margin_start(9);
     nav.set_margin_end(9);
     let home_button = nav_row("go-home-symbolic", "Home");
     let search_button_nav = nav_row("system-search-symbolic", "Search");
-    let queue_button = nav_row("view-list-symbolic", "Queue");
-    let queue_count = label("0", "nav-count");
-    queue_count.set_valign(gtk4::Align::Center);
-    if let Some(child) = queue_button.child() {
-        if let Some(row) = child.downcast_ref::<gtk4::Box>() {
-            row.append(&queue_count);
-        }
-    }
     let library_button = nav_row("folder-music-symbolic", "Library");
-    nav.append(&library_button);
     nav.append(&home_button);
     nav.append(&search_button_nav);
-    nav.append(&queue_button);
+    nav.append(&library_button);
     container.append(&nav);
 
-    let spacer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    spacer.set_vexpand(true);
-    container.append(&spacer);
+    let playlists_slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    playlists_slot.set_vexpand(true);
+    container.append(&playlists_slot);
 
     SidebarParts {
         settings_button,
@@ -532,17 +604,16 @@ fn build_sidebar() -> SidebarParts {
         search_button,
         home_button,
         search_button_nav,
-        queue_button,
-        queue_count,
+        playlists_slot,
     }
 }
 
 struct HomeParts {
     page: gtk4::Box,
-    stack: gtk4::Stack,
+    playlists_slot: gtk4::Box,
+    session_section: gtk4::Box,
     recent_flow: gtk4::FlowBox,
     recent_count: gtk4::Label,
-    search_button: gtk4::Button,
 }
 
 fn build_home_page() -> HomeParts {
@@ -557,52 +628,30 @@ fn build_home_page() -> HomeParts {
     header.append(&label("Home", "page-title"));
     page.append(&header);
 
-    let stack = gtk4::Stack::new();
-    stack.set_vexpand(true);
-    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
-    stack.set_transition_duration(140);
-
-    let empty = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-    empty.add_css_class("home-empty");
-    empty.set_halign(gtk4::Align::Start);
-    empty.set_valign(gtk4::Align::Start);
-    empty.set_margin_start(26);
-    empty.set_margin_end(26);
-    empty.set_margin_top(4);
-    empty.set_margin_bottom(26);
-    let empty_title = label("Find something to play", "empty-title");
-    empty.append(&empty_title);
-    let empty_copy = label("Search for music to start this session.", "empty-copy");
-    empty_copy.set_wrap(true);
-    empty_copy.set_wrap_mode(pango::WrapMode::WordChar);
-    empty_copy.set_max_width_chars(44);
-    empty.append(&empty_copy);
-    let search_button = gtk4::Button::with_label("Search music");
-    search_button.add_css_class("accent");
-    search_button.add_css_class("empty-action");
-    search_button.set_halign(gtk4::Align::Start);
-    search_button.set_margin_top(4);
-    search_button.set_tooltip_text(Some("Focus the catalog search"));
-    empty.append(&search_button);
-    stack.add_named(&empty, Some("empty"));
-
     let scroll = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
         .vexpand(true)
         .build();
     scroll.add_css_class("page-scroll");
-    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 18);
     content.set_margin_start(26);
     content.set_margin_end(26);
     content.set_margin_bottom(26);
+
+    let playlists_slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    content.append(&playlists_slot);
+
+    let session_section = gtk4::Box::new(gtk4::Orientation::Vertical, 18);
+    session_section.set_visible(false);
     let section = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
     section.append(&label("This session", "section-title"));
     let recent_count = label("", "page-meta");
     recent_count.set_hexpand(true);
     recent_count.set_halign(gtk4::Align::End);
     section.append(&recent_count);
-    content.append(&section);
+    session_section.append(&section);
+
     let recent_flow = gtk4::FlowBox::new();
     recent_flow.add_css_class("recent-flow");
     recent_flow.set_selection_mode(gtk4::SelectionMode::None);
@@ -612,18 +661,18 @@ fn build_home_page() -> HomeParts {
     recent_flow.set_column_spacing(HOME_CARD_GAP);
     recent_flow.set_row_spacing(22);
     recent_flow.set_valign(gtk4::Align::Start);
-    content.append(&recent_flow);
+    session_section.append(&recent_flow);
+    content.append(&session_section);
+
     scroll.set_child(Some(&content));
-    stack.add_named(&scroll, Some("recent"));
-    stack.set_visible_child_name("empty");
-    page.append(&stack);
+    page.append(&scroll);
 
     HomeParts {
         page,
-        stack,
+        playlists_slot,
+        session_section,
         recent_flow,
         recent_count,
-        search_button,
     }
 }
 
@@ -662,7 +711,7 @@ fn build_search_page() -> SearchParts {
     let results_stack = gtk4::Stack::new();
     results_stack.set_vexpand(true);
     results_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
-    results_stack.set_transition_duration(120);
+    results_stack.set_transition_duration(crate::motion::STATE.as_millis() as u32);
 
     let empty = gtk4::Box::new(gtk4::Orientation::Vertical, 5);
     empty.add_css_class("search-empty");
@@ -709,6 +758,9 @@ fn build_search_page() -> SearchParts {
 
 struct PlayerParts {
     header: gtk4::HeaderBar,
+    titlebar: crate::responsive::ResponsiveBar,
+    volume_box: gtk4::Box,
+    now_playing: gtk4::Box,
     title: gtk4::Label,
     artist: gtk4::Label,
     play_icon: gtk4::Image,
@@ -772,15 +824,6 @@ fn build_player_bar() -> PlayerParts {
     line.append(&meta);
     line.append(&progress_time);
     now.append(&line);
-
-    let progress_scale =
-        gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, PROGRESS_MAX, 1.0);
-    progress_scale.set_draw_value(false);
-    progress_scale.set_hexpand(true);
-    progress_scale.set_size_request(-1, 8);
-    progress_scale.add_css_class("progress-scale");
-    progress_scale.set_tooltip_text(Some("Seek through the current recording"));
-    now.append(&progress_scale);
     header.set_title_widget(Some(&now));
 
     let utility = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
@@ -795,22 +838,45 @@ fn build_player_bar() -> PlayerParts {
     volume_scale.set_size_request(64, -1);
     volume_scale.add_css_class("volume");
     volume_scale.set_tooltip_text(Some("Volume"));
+    let volume_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
+    volume_box.set_valign(gtk4::Align::Center);
+    volume_box.append(&volume_icon);
+    volume_box.append(&volume_scale);
     let lyrics_toggle = icon_button("text-x-generic-symbolic", "Lyrics");
     lyrics_toggle.add_css_class("top-action");
     let queue_toggle = icon_button("view-list-symbolic", "Queue");
     queue_toggle.add_css_class("top-action");
-    utility.append(&volume_icon);
-    utility.append(&volume_scale);
+    utility.append(&volume_box);
     let utility_gap = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     utility_gap.set_size_request(3, -1);
     utility.append(&utility_gap);
     utility.append(&lyrics_toggle);
     utility.append(&queue_toggle);
     header.pack_end(&utility);
+
+    let progress_scale =
+        gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, PROGRESS_MAX, 1.0);
+    progress_scale.set_draw_value(false);
+    progress_scale.set_hexpand(true);
+    progress_scale.set_valign(gtk4::Align::Center);
+    progress_scale.add_css_class("progress-scale");
+    progress_scale.set_tooltip_text(Some("Seek through the current recording"));
+    let strip = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    strip.add_css_class("player-strip");
+    strip.append(&progress_scale);
+
+    let titlebar = crate::responsive::ResponsiveBar::new(gtk4::Orientation::Vertical);
+    titlebar.add_css_class("player-titlebar");
+    titlebar.append(&header);
+    titlebar.append(&strip);
+
     let artwork = ArtworkSlot::new(&artwork_picture);
 
     PlayerParts {
         header,
+        titlebar,
+        volume_box,
+        now_playing: now,
         title,
         artist,
         play_icon,
@@ -840,6 +906,8 @@ fn nav_row(icon: &str, text: &str) -> gtk4::Button {
     row.append(&image);
     row.append(&name);
     button.set_child(Some(&row));
+    button.set_tooltip_text(Some(text));
+    set_accessible_label(&button, text);
     button
 }
 
@@ -872,6 +940,7 @@ fn install_css() {
 struct SidePanel {
     container: gtk4::Box,
     close: gtk4::Button,
+    fullscreen: gtk4::Button,
     title: gtk4::Label,
     stack: gtk4::Stack,
     queue_current_title: gtk4::Label,
@@ -895,16 +964,19 @@ fn build_side_panel() -> SidePanel {
     let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     container.add_css_class("side-panel");
     container.set_size_request(SIDE_PANEL_WIDTH, -1);
-    container.set_visible(false);
 
     let side_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     side_header.add_css_class("side-header");
     let title = label("Queue", "side-title");
     title.set_hexpand(true);
+    let fullscreen = icon_button("view-fullscreen-symbolic", "Open fullscreen lyrics");
+    fullscreen.add_css_class("panel-action");
+    fullscreen.set_visible(false);
     let close = transport_icon_button("window-close-symbolic", "Close panel");
     close.add_css_class("panel-close");
     set_accessible_label(&close, "Close panel");
     side_header.append(&title);
+    side_header.append(&fullscreen);
     side_header.append(&close);
     container.append(&side_header);
 
@@ -1048,6 +1120,7 @@ fn build_side_panel() -> SidePanel {
     SidePanel {
         container,
         close,
+        fullscreen,
         title,
         stack,
         queue_current_title,
@@ -1068,22 +1141,374 @@ fn build_side_panel() -> SidePanel {
     }
 }
 
+struct FullscreenLyrics {
+    window: gtk4::Window,
+    title: gtk4::Label,
+    artist: gtk4::Label,
+    play_icon: gtk4::Image,
+    play_button: gtk4::Button,
+    previous_button: gtk4::Button,
+    next_button: gtk4::Button,
+    time_label: gtk4::Label,
+    stack: gtk4::Stack,
+    spinner: gtk4::Spinner,
+    message: gtk4::Label,
+    retry: gtk4::Button,
+    scroll: gtk4::ScrolledWindow,
+    lines: gtk4::Box,
+    follow: gtk4::Button,
+    attribution: gtk4::Label,
+    exit: gtk4::Button,
+    backdrop: ArtworkSlot,
+    backdrop_picture: gtk4::Picture,
+    tint_provider: gtk4::CssProvider,
+    tint_layer: gtk4::Box,
+    content: gtk4::Box,
+    line_labels: Vec<gtk4::Label>,
+    line_widgets: Vec<gtk4::Widget>,
+    active: Option<usize>,
+    following: bool,
+    suppress_scroll: Rc<Cell<bool>>,
+    scroll_animation: Option<glib::SourceId>,
+}
+
+fn build_fullscreen_lyrics() -> FullscreenLyrics {
+    let window = gtk4::Window::builder()
+        .title("Ember lyrics")
+        .decorated(false)
+        .default_width(1180)
+        .default_height(760)
+        .build();
+    window.add_css_class("lyrics-window");
+
+    let overlay = gtk4::Overlay::new();
+    let backdrop_picture = gtk4::Picture::new();
+    backdrop_picture.set_can_shrink(true);
+    backdrop_picture.set_content_fit(gtk4::ContentFit::Cover);
+    backdrop_picture.set_hexpand(true);
+    backdrop_picture.set_vexpand(true);
+    backdrop_picture.set_opacity(0.26);
+    backdrop_picture.add_css_class("lyrics-backdrop");
+    overlay.set_child(Some(&backdrop_picture));
+
+    let scrim = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    scrim.set_hexpand(true);
+    scrim.set_vexpand(true);
+    scrim.add_css_class("lyrics-scrim");
+    overlay.add_overlay(&scrim);
+
+    let tint_layer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    tint_layer.add_css_class("lyrics-tint");
+    tint_layer.add_css_class("tint-immersive");
+    tint_layer.set_hexpand(true);
+    tint_layer.set_vexpand(true);
+    tint_layer.set_can_target(false);
+    // Class-scoped tint on a display-level provider: GTK deprecated per-widget
+    // style contexts in 4.10.
+    let tint_provider = gtk4::CssProvider::new();
+    if let Some(display) = gdk::Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &tint_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        );
+    }
+    overlay.add_overlay(&tint_layer);
+
+    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    content.add_css_class("lyrics-fullscreen-content");
+    content.set_halign(gtk4::Align::Center);
+    content.set_size_request(720, -1);
+    content.set_margin_top(28);
+    content.set_margin_bottom(22);
+
+    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 18);
+    header.add_css_class("lyrics-fullscreen-header");
+    let meta = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    meta.set_hexpand(true);
+    let eyebrow = label("Lyrics", "lyrics-eyebrow");
+    let title = label("Nothing playing", "lyrics-fullscreen-title");
+    title.set_ellipsize(pango::EllipsizeMode::End);
+    title.set_max_width_chars(44);
+    let artist = label("", "lyrics-fullscreen-artist");
+    artist.set_ellipsize(pango::EllipsizeMode::End);
+    artist.set_max_width_chars(52);
+    meta.append(&eyebrow);
+    meta.append(&title);
+    meta.append(&artist);
+
+    let exit = gtk4::Button::new();
+    exit.add_css_class("lyrics-exit");
+    exit.set_tooltip_text(Some("Exit fullscreen lyrics (Escape)"));
+    set_accessible_label(&exit, "Exit fullscreen lyrics");
+    let exit_content = gtk4::Box::new(gtk4::Orientation::Horizontal, 7);
+    let exit_icon = gtk4::Image::from_icon_name("view-restore-symbolic");
+    exit_icon.set_pixel_size(15);
+    exit_content.append(&exit_icon);
+    exit_content.append(&label("Exit", "lyrics-exit-label"));
+    exit.set_child(Some(&exit_content));
+    exit.set_valign(gtk4::Align::Start);
+    header.append(&meta);
+    header.append(&exit);
+    header.set_margin_start(26);
+    header.set_margin_end(26);
+    content.append(&header);
+
+    let stack = gtk4::Stack::new();
+    stack.set_vexpand(true);
+    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+
+    let loading_page = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    loading_page.set_halign(gtk4::Align::Center);
+    loading_page.set_valign(gtk4::Align::Center);
+    loading_page.set_vexpand(true);
+    let spinner = gtk4::Spinner::new();
+    spinner.set_size_request(24, 24);
+    let loading_label = label("Looking up lyrics…", "lyrics-fullscreen-message");
+    loading_label.set_halign(gtk4::Align::Center);
+    loading_page.append(&spinner);
+    loading_page.append(&loading_label);
+    stack.add_named(&loading_page, Some("loading"));
+
+    let message_page = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    message_page.set_halign(gtk4::Align::Center);
+    message_page.set_valign(gtk4::Align::Center);
+    message_page.set_vexpand(true);
+    message_page.set_margin_start(40);
+    message_page.set_margin_end(40);
+    let message = label(
+        "Select a recording to see its lyrics.",
+        "lyrics-fullscreen-message",
+    );
+    message.set_justify(gtk4::Justification::Center);
+    message.set_halign(gtk4::Align::Center);
+    message.set_wrap(true);
+    message.set_wrap_mode(pango::WrapMode::WordChar);
+    message.set_max_width_chars(52);
+    let retry = gtk4::Button::with_label("Try again");
+    retry.add_css_class("accent");
+    retry.set_visible(false);
+    message_page.append(&message);
+    message_page.append(&retry);
+    stack.add_named(&message_page, Some("message"));
+
+    let scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vexpand(true)
+        .build();
+    scroll.add_css_class("lyrics-scroll");
+    scroll.add_css_class("lyrics-fullscreen-scroll");
+    let lines = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    lines.add_css_class("lyrics-lines");
+    lines.add_css_class("lyrics-fullscreen-lines");
+    lines.set_margin_top(42);
+    lines.set_margin_bottom(58);
+    lines.set_margin_start(26);
+    lines.set_margin_end(26);
+    scroll.set_child(Some(&lines));
+    stack.add_named(&scroll, Some("lines"));
+    stack.set_visible_child_name("message");
+
+    let area = gtk4::Overlay::new();
+    area.set_vexpand(true);
+    area.set_child(Some(&stack));
+    let follow = gtk4::Button::with_label("Resume following");
+    follow.add_css_class("lyrics-follow");
+    follow.add_css_class("lyrics-follow-floating");
+    follow.set_tooltip_text(Some("Follow the current lyric line again"));
+    follow.set_halign(gtk4::Align::Center);
+    follow.set_valign(gtk4::Align::End);
+    follow.set_margin_bottom(10);
+    follow.set_visible(false);
+    area.add_overlay(&follow);
+    content.append(&area);
+
+    let footer = gtk4::Box::new(gtk4::Orientation::Vertical, 9);
+    footer.add_css_class("lyrics-fullscreen-footer");
+    footer.set_margin_top(10);
+    let transport = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+    transport.set_halign(gtk4::Align::Center);
+    transport.set_valign(gtk4::Align::Center);
+    let previous_button = transport_icon_button("media-skip-backward-symbolic", "Previous");
+    previous_button.add_css_class("lyrics-transport");
+    let play_icon = gtk4::Image::from_icon_name("media-playback-start-symbolic");
+    play_icon.set_pixel_size(19);
+    let play_button = gtk4::Button::new();
+    play_button.set_child(Some(&play_icon));
+    play_button.add_css_class("lyrics-play-button");
+    set_accessible_label(&play_button, "Play");
+    let next_button = transport_icon_button("media-skip-forward-symbolic", "Next");
+    next_button.add_css_class("lyrics-transport");
+    transport.append(&previous_button);
+    transport.append(&play_button);
+    transport.append(&next_button);
+    let time_label = label("", "lyrics-fullscreen-time");
+    time_label.set_halign(gtk4::Align::Center);
+    let attribution = label("", "lyrics-attribution");
+    attribution.set_halign(gtk4::Align::Center);
+    attribution.set_justify(gtk4::Justification::Center);
+    attribution.set_wrap(true);
+    attribution.set_wrap_mode(pango::WrapMode::WordChar);
+    attribution.set_max_width_chars(70);
+    attribution.set_visible(false);
+    footer.append(&transport);
+    footer.append(&time_label);
+    footer.append(&attribution);
+    content.append(&footer);
+    overlay.add_overlay(&content);
+    window.set_child(Some(&overlay));
+
+    FullscreenLyrics {
+        window,
+        title,
+        artist,
+        play_icon,
+        play_button,
+        previous_button,
+        next_button,
+        time_label,
+        stack,
+        spinner,
+        message,
+        retry,
+        scroll,
+        lines,
+        follow,
+        attribution,
+        exit,
+        backdrop: ArtworkSlot::new(&backdrop_picture),
+        backdrop_picture,
+        tint_provider,
+        tint_layer,
+        content,
+        line_labels: Vec::new(),
+        line_widgets: Vec::new(),
+        active: None,
+        following: true,
+        suppress_scroll: Rc::new(Cell::new(false)),
+        scroll_animation: None,
+    }
+}
+
+impl FullscreenLyrics {
+    fn cancel_scroll(&mut self) {
+        if let Some(source) = self.scroll_animation.take() {
+            source.remove();
+        }
+    }
+
+    fn clear_rows(&mut self) {
+        self.cancel_scroll();
+        while let Some(child) = self.lines.first_child() {
+            self.lines.remove(&child);
+        }
+        self.line_widgets.clear();
+        self.line_labels.clear();
+        self.active = None;
+    }
+
+    fn set_active(&mut self, active: Option<usize>) -> bool {
+        if self.active == active {
+            return false;
+        }
+        if let Some(previous) = self.active {
+            if let Some(label) = self.line_labels.get(previous) {
+                label.remove_css_class("active");
+            }
+            if let Some(widget) = self.line_widgets.get(previous) {
+                widget.remove_css_class("active");
+            }
+        }
+        self.active = active;
+        if let Some(index) = active {
+            if let Some(label) = self.line_labels.get(index) {
+                label.add_css_class("active");
+            }
+            if let Some(widget) = self.line_widgets.get(index) {
+                widget.add_css_class("active");
+            }
+        }
+        true
+    }
+}
+
+fn build_fullscreen_lyric_rows(
+    fullscreen: &mut FullscreenLyrics,
+    data: &LyricsData,
+    weak: &Weak<RefCell<AppUi>>,
+) {
+    fullscreen.clear_rows();
+    let timed = data.kind == LyricsKind::Synced;
+    for (index, line) in data.lines.iter().enumerate() {
+        if timed {
+            let button = gtk4::Button::new();
+            button.add_css_class("lyric-line");
+            button.add_css_class("lyric-fullscreen-row");
+            button.set_hexpand(true);
+            button.set_can_focus(true);
+            set_accessible_label(&button, &format!("Seek to {}", line.text));
+            let text = lyric_label(&line.text, "lyric-text");
+            button.set_child(Some(&text));
+            let weak = weak.clone();
+            button.connect_clicked(move |_| {
+                if let Some(app) = weak.upgrade() {
+                    app.borrow_mut().seek_to_lyric(index);
+                }
+            });
+            fullscreen.lines.append(&button);
+            fullscreen.line_widgets.push(button.upcast());
+            fullscreen.line_labels.push(text);
+        } else {
+            let text = lyric_label(&line.text, "lyric-plain");
+            fullscreen.lines.append(&text);
+            fullscreen.line_widgets.push(text.clone().upcast());
+            fullscreen.line_labels.push(text);
+        }
+    }
+}
+
+fn animations_enabled() -> bool {
+    gtk4::Settings::default()
+        .map(|settings| settings.is_gtk_enable_animations())
+        .unwrap_or(true)
+}
+
+/// Fades a widget in over `duration`, or jumps to opaque when animations are
+/// disabled. Used for the motion a CSS transition cannot carry: gradients and
+/// whole-window entry.
+fn fade_in(widget: &gtk4::Box, duration: Duration) {
+    let widget = widget.clone();
+    if !animations_enabled() {
+        widget.set_opacity(1.0);
+        return;
+    }
+    widget.set_opacity(0.0);
+    let started = Instant::now();
+    widget.add_tick_callback(move |widget, _clock| {
+        let progress = crate::motion::eased_progress(started.elapsed(), duration, true);
+        widget.set_opacity(progress);
+        if progress >= 1.0 {
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    });
+}
+
 struct AppUi {
+    lastfm: Rc<RefCell<crate::lastfm::Reporter>>,
     library: Rc<RefCell<crate::library::LibraryPane>>,
     library_seq: u64,
     nav_library: gtk4::Button,
     window: gtk4::ApplicationWindow,
     search_entry: gtk4::Entry,
     search_button: gtk4::Button,
-    spinner: gtk4::Spinner,
-    status_label: gtk4::Label,
+    notice: crate::notice::Notice,
     main_stack: gtk4::Stack,
     nav_home: gtk4::Button,
     nav_search: gtk4::Button,
-    nav_queue: gtk4::Button,
-    queue_nav_count: gtk4::Label,
-    home_stack: gtk4::Stack,
-    home_search_button: gtk4::Button,
+    session_section: gtk4::Box,
     recent_flow: gtk4::FlowBox,
     recent_count: gtk4::Label,
     empty_label: gtk4::Label,
@@ -1099,8 +1524,13 @@ struct AppUi {
     next_button: gtk4::Button,
     volume_scale: gtk4::Scale,
     volume: f64,
+    volume_suppress: Rc<Cell<bool>>,
     progress_scale: gtk4::Scale,
     progress_time: gtk4::Label,
+    now_playing: gtk4::Box,
+    volume_box: gtk4::Box,
+    titlebar: crate::responsive::ResponsiveBar,
+    compact: Cell<bool>,
     progress_suppress: Rc<Cell<bool>>,
     player_art: ArtworkSlot,
     artwork_loader: Rc<RefCell<ArtworkLoader>>,
@@ -1110,14 +1540,19 @@ struct AppUi {
     player_tx: mpsc::Sender<PlayerEvent>,
     player: Option<Player>,
     player_ready: bool,
+    mpris: Option<Mpris>,
     queue: Queue,
     playback: PlaybackState,
     prepared: Option<ResolveData>,
     cached_playback: Option<String>,
     search_seq: u64,
+    radio_task: Option<glib::JoinHandle<()>>,
+    radio_generation: u64,
     resolve_seq: u64,
-    side_panel: gtk4::Box,
+    side_panel: gtk4::Revealer,
+    panel_open: Cell<bool>,
     side_close: gtk4::Button,
+    side_fullscreen: gtk4::Button,
     side_title: gtk4::Label,
     side_stack: gtk4::Stack,
     queue_toggle: gtk4::Button,
@@ -1147,12 +1582,55 @@ struct AppUi {
     lyrics_line_widgets: Vec<gtk4::Widget>,
     lyrics_suppress_scroll: Rc<Cell<bool>>,
     lyrics_scroll_animation: Option<glib::SourceId>,
+    lyrics_fullscreen: Option<FullscreenLyrics>,
     self_weak: Weak<RefCell<AppUi>>,
     closing: bool,
 }
 
 impl AppUi {
+    fn cancel_radio(&mut self) {
+        self.radio_generation = self.radio_generation.wrapping_add(1);
+        if let Some(task) = self.radio_task.take() {
+            task.abort();
+        }
+    }
+
+    fn start_song_radio(&mut self, track: Track) {
+        if self.closing {
+            return;
+        }
+        self.cancel_radio();
+        self.search_seq = 0;
+        let generation = self.radio_generation;
+        let weak = self.self_weak.clone();
+        self.navigate("search");
+        self.clear_results("Loading Last.fm song radio…");
+        self.set_loading_status("Loading Last.fm song radio…");
+        self.radio_task = Some(glib::MainContext::default().spawn_local(async move {
+            let result = crate::lastfm::song_radio(&track).await;
+            let Some(app) = weak.upgrade() else {
+                return;
+            };
+            let mut ui = app.borrow_mut();
+            if ui.closing || ui.radio_generation != generation {
+                return;
+            }
+            ui.radio_task.take();
+            match result {
+                Ok(tracks) => {
+                    ui.show_search_results(tracks);
+                    ui.activate_search_result(0);
+                }
+                Err(error) => {
+                    ui.clear_results("Song radio unavailable.");
+                    ui.set_status(&format!("{} Your queue is unchanged.", error), true);
+                }
+            }
+        }));
+    }
+
     fn start_search(&mut self) {
+        self.cancel_radio();
         if self.closing {
             return;
         }
@@ -1208,6 +1686,7 @@ impl AppUi {
                 Ok(BridgePayload::Search(tracks)) => self.show_search_results(tracks),
                 Ok(_) => self.set_status("The music bridge returned the wrong result type.", true),
                 Err(error) => {
+                    self.cancel_radio();
                     self.clear_results("Search failed.");
                     self.set_status(&format!("Search failed. {}", error.message()), true);
                 }
@@ -1335,22 +1814,26 @@ impl AppUi {
             self.recent_flow.remove(&child);
         }
         if self.recent_tracks.is_empty() {
-            self.home_stack.set_visible_child_name("empty");
+            self.session_section.set_visible(false);
             self.recent_count.set_text("");
             return;
         }
-        self.home_stack.set_visible_child_name("recent");
+        self.session_section.set_visible(true);
+        self.recent_flow.set_visible(true);
         let count = self.recent_tracks.len();
         self.recent_count.set_text(&format!(
             "{count} {}",
             noun(count, "recording", "recordings")
         ));
         let weak = self.self_weak.clone();
-        let tracks = self.recent_tracks.clone();
-        for (index, track) in tracks.iter().enumerate() {
-            let (card, slot) = recent_card(track, index, &weak);
+        for group in group_session(&self.recent_tracks) {
+            let (card, slot) = if group.album.is_some() {
+                album_card(&group, &weak)
+            } else {
+                recent_card(&group.tracks[0], group.first_index, &weak)
+            };
             self.recent_flow.insert(&card, -1);
-            if let Some(url) = track.artwork_url.as_deref() {
+            if let Some(url) = group.cover_url.as_deref() {
                 ArtworkLoader::request(&self.artwork_loader, url, slot);
             }
         }
@@ -1361,6 +1844,7 @@ impl AppUi {
         if let Some(url) = track.and_then(|track| track.artwork_url.as_deref()) {
             ArtworkLoader::request(&self.artwork_loader, url, self.player_art.clone());
         }
+        self.refresh_fullscreen_backdrop();
     }
 
     fn play_queue_entry(&mut self, id: EntryId) {
@@ -1382,6 +1866,7 @@ impl AppUi {
     }
 
     fn begin_entry(&mut self, entry: &QueueEntry, refresh_lyrics: bool) {
+        self.cancel_radio();
         self.cached_playback = None;
         if let Some(bridge) = &self.bridge {
             bridge.cancel_cache();
@@ -1529,6 +2014,8 @@ impl AppUi {
     }
 
     fn toggle_play(&mut self) {
+        self.cancel_radio();
+        self.lastfm.borrow_mut().break_continuity();
         if self.closing {
             return;
         }
@@ -1603,6 +2090,8 @@ impl AppUi {
     }
 
     fn stop_playback(&mut self) {
+        self.cancel_radio();
+        self.lastfm.borrow_mut().break_continuity();
         if self.closing {
             return;
         }
@@ -1695,6 +2184,7 @@ impl AppUi {
                 self.begin_current(false);
                 return;
             };
+            self.lastfm.borrow_mut().break_continuity();
             if let Err(message) = player.seek_to_ms(0) {
                 self.set_status(&message, true);
                 return;
@@ -1819,8 +2309,6 @@ impl AppUi {
         }
         let count = upcoming.len();
         self.queue_count.set_text(&format!("{count} up next"));
-        self.queue_nav_count.set_text(&count.to_string());
-        self.queue_nav_count.set_visible(count > 0);
         self.queue_clear.set_sensitive(count > 0);
         self.update_now_playing_labels();
     }
@@ -1835,6 +2323,18 @@ impl AppUi {
         } else {
             self.title_label.set_text("Pending queue");
             self.artist_label.set_text("Press Play to start the queue");
+        }
+        if let Some(fullscreen) = self.lyrics_fullscreen.as_ref() {
+            if let Some(entry) = self.queue.current() {
+                fullscreen.title.set_text(&entry.track.name);
+                fullscreen.artist.set_text(&entry.track.artist_line());
+            } else if self.queue.is_empty() {
+                fullscreen.title.set_text("Nothing playing");
+                fullscreen.artist.set_text("Search to start listening");
+            } else {
+                fullscreen.title.set_text("Pending queue");
+                fullscreen.artist.set_text("Press Play to start the queue");
+            }
         }
     }
 
@@ -1903,6 +2403,19 @@ impl AppUi {
         if let Some(player) = self.player.as_ref() {
             player.set_volume(self.volume / 100.0);
         }
+        if let Some(mpris) = self.mpris.as_ref() {
+            mpris.volume(self.volume / 100.0);
+        }
+    }
+
+    fn set_compact_player(&self, compact: bool) {
+        if self.compact.replace(compact) == compact {
+            return;
+        }
+        self.volume_box.set_visible(!compact);
+        self.progress_time.set_visible(!compact);
+        self.now_playing
+            .set_size_request(if compact { 280 } else { 380 }, -1);
     }
 
     fn refresh_progress(&self) {
@@ -1939,13 +2452,41 @@ impl AppUi {
         self.progress_scale.set_sensitive(
             !self.closing && self.player.is_some() && self.playback.stream_loaded() && duration > 0,
         );
+        if let Some(fullscreen) = self.lyrics_fullscreen.as_ref() {
+            fullscreen.time_label.set_text(&format!(
+                "{} / {}",
+                format_time(elapsed),
+                format_time(duration)
+            ));
+        }
+        if let Some(mpris) = self.mpris.as_ref() {
+            mpris.position(elapsed);
+        }
     }
 
     fn tick_progress(&self) {
         self.refresh_progress();
+        crate::lastfm::Reporter::sample(
+            &self.lastfm,
+            self.player.as_ref().map(Player::id),
+            self.queue.current().map(|entry| &entry.track),
+            self.player
+                .as_ref()
+                .and_then(Player::position_ms)
+                .unwrap_or(0),
+            self.player
+                .as_ref()
+                .and_then(Player::duration_ms)
+                .filter(|n| *n > 0)
+                .or_else(|| self.queue.current().map(|entry| entry.track.duration_ms))
+                .unwrap_or(0),
+            self.playback.is_playing()
+                && self.player.as_ref().is_some_and(Player::actually_playing),
+        );
     }
 
     fn seek_to_progress(&mut self, fraction: f64) {
+        self.lastfm.borrow_mut().break_continuity();
         let Some(player) = self.player.as_ref() else {
             self.set_status("Start playback before seeking.", false);
             self.refresh_progress();
@@ -1968,6 +2509,7 @@ impl AppUi {
         let Some(target) = seek_target(fraction, duration) else {
             return;
         };
+        self.lastfm.borrow_mut().break_continuity();
         match player.seek_to_ms(target) {
             Ok(()) => self.tick_lyrics(),
             Err(message) => self.set_status(&message, true),
@@ -1976,7 +2518,7 @@ impl AppUi {
     }
 
     fn navigate(&mut self, page: &str) {
-        if self.side_panel.is_visible() {
+        if self.panel_open.get() {
             self.close_side_panel();
         }
         self.main_stack.set_visible_child_name(page);
@@ -1992,20 +2534,28 @@ impl AppUi {
         }
     }
 
+    fn open_playlist(&mut self, id: &str) {
+        if self.panel_open.get() {
+            self.close_side_panel();
+        }
+        self.main_stack.set_visible_child_name("library");
+        self.sync_nav();
+        crate::library::LibraryPane::load(&self.library, id);
+    }
+
     fn sync_nav(&self) {
         let page = self
             .main_stack
             .visible_child_name()
             .map(|name| name.to_string())
             .unwrap_or_else(|| "home".to_owned());
-        let queue_open = self.side_panel.is_visible()
+        let queue_open = self.panel_open.get()
             && self.side_stack.visible_child_name().as_deref() == Some("queue");
-        let lyrics_open = self.side_panel.is_visible()
+        let lyrics_open = self.panel_open.get()
             && self.side_stack.visible_child_name().as_deref() == Some("lyrics");
         set_active(&self.nav_library, page == "library" && !queue_open);
         set_active(&self.nav_home, page == "home" && !queue_open);
         set_active(&self.nav_search, page == "search" && !queue_open);
-        set_active(&self.nav_queue, queue_open);
         set_active(&self.queue_toggle, queue_open);
         set_active(&self.lyrics_toggle, lyrics_open);
     }
@@ -2038,54 +2588,175 @@ impl AppUi {
                 || self.playback.stream_loaded());
         self.set_play_icon(show_pause);
 
-        if self.playback.loading() && !self.closing {
-            self.spinner.set_visible(true);
-            self.spinner.start();
-        } else {
-            self.spinner.stop();
-            self.spinner.set_visible(false);
-        }
         self.queue_clear
             .set_sensitive(self.queue.upcoming_count() > 0);
-        let count = self.queue.upcoming_count();
-        self.queue_nav_count.set_text(&count.to_string());
-        self.queue_nav_count.set_visible(count > 0);
         self.update_now_playing_labels();
         self.refresh_progress();
+        self.refresh_fullscreen_transport();
+        self.sync_mpris();
+    }
+
+    fn sync_mpris(&self) {
+        let Some(mpris) = self.mpris.as_ref() else {
+            return;
+        };
+        let current = self.queue.current();
+        let has_selection = current.is_some() || !self.queue.is_empty();
+        let track = current.map(|entry| {
+            let duration_ms = self
+                .player
+                .as_ref()
+                .and_then(Player::duration_ms)
+                .filter(|duration| *duration > 0)
+                .unwrap_or(entry.track.duration_ms);
+            MprisTrack {
+                id: entry.track.id.clone(),
+                title: entry.track.name.clone(),
+                artists: entry.track.artists.clone(),
+                album: entry.track.album.clone(),
+                duration_ms,
+                artwork_url: entry.track.artwork_url.clone(),
+            }
+        });
+        let duration_ms = track.as_ref().map(|track| track.duration_ms).unwrap_or(0);
+        let position_ms = self
+            .player
+            .as_ref()
+            .and_then(Player::position_ms)
+            .unwrap_or(0)
+            .min(duration_ms);
+        let playback = if self.playback.wants_play() {
+            MprisPlayback::Playing
+        } else if self.playback.stream_loaded() {
+            MprisPlayback::Paused
+        } else {
+            MprisPlayback::Stopped
+        };
+        mpris.update(MprisState {
+            track,
+            playback,
+            position_ms,
+            volume: self.volume / 100.0,
+            can_play: !self.closing && self.bridge.is_some() && self.player_ready && has_selection,
+            can_pause: self.playback.wants_play() || self.playback.stream_loaded(),
+            can_go_next: self.queue.next_index().is_some() && !self.closing,
+            can_go_previous: has_selection && !self.closing,
+            can_seek: self.player.is_some() && self.playback.stream_loaded() && duration_ms > 0,
+        });
+    }
+
+    fn handle_mpris(&mut self, command: MprisCommand) {
+        if self.closing {
+            return;
+        }
+        match command {
+            MprisCommand::Play => {
+                let already_running = self.playback.wants_play()
+                    && (self.playback.loading() || self.playback.stream_loaded());
+                if !already_running {
+                    self.toggle_play();
+                }
+            }
+            MprisCommand::Pause => {
+                if self.playback.wants_play() {
+                    self.toggle_play();
+                }
+            }
+            MprisCommand::PlayPause => self.toggle_play(),
+            MprisCommand::Stop => self.stop_playback(),
+            MprisCommand::Next => self.next_track(),
+            MprisCommand::Previous => self.previous_track(),
+            MprisCommand::SeekBy(offset) => {
+                let position = self
+                    .player
+                    .as_ref()
+                    .and_then(Player::position_ms)
+                    .unwrap_or(0) as i64;
+                let target = if offset >= 0 {
+                    position.saturating_add(offset / 1_000)
+                } else {
+                    let delta = offset.unsigned_abs().min(i64::MAX as u64) as i64;
+                    position.saturating_sub(delta / 1_000)
+                };
+                self.seek_to_ms(target.max(0) as u64);
+            }
+            MprisCommand::SetPosition(position_ms) => self.seek_to_ms(position_ms),
+            MprisCommand::SetVolume(volume) => {
+                let percent = (volume * 100.0).clamp(0.0, 100.0);
+                let previous = self.volume_suppress.replace(true);
+                self.volume_scale.set_value(percent);
+                self.volume_suppress.set(previous);
+                self.set_volume(percent);
+            }
+            MprisCommand::Raise => self.window.present(),
+            MprisCommand::Quit => self.window.close(),
+        }
+    }
+
+    fn seek_to_ms(&mut self, requested_ms: u64) {
+        if self.closing {
+            return;
+        }
+        let Some(player) = self.player.as_ref() else {
+            self.set_status("Start playback before seeking.", false);
+            return;
+        };
+        if !self.playback.stream_loaded() {
+            self.set_status("Start playback before seeking.", false);
+            return;
+        }
+        let fallback = self
+            .queue
+            .current()
+            .map(|entry| entry.track.duration_ms)
+            .unwrap_or(0);
+        let duration = player
+            .duration_ms()
+            .filter(|duration| *duration > 0)
+            .unwrap_or(fallback);
+        if duration == 0 {
+            return;
+        }
+        let target = requested_ms.min(duration.saturating_sub(100));
+        let result = player.seek_to_ms(target);
+        match result {
+            Ok(()) => {
+                self.lastfm.borrow_mut().break_continuity();
+                if let Some(mpris) = self.mpris.as_ref() {
+                    mpris.seeked(target);
+                }
+                self.tick_lyrics();
+                self.refresh_progress();
+            }
+            Err(message) => self.set_status(&message, true),
+        }
     }
 
     fn set_status(&mut self, text: &str, error: bool) {
-        self.spinner.stop();
-        self.spinner.set_visible(false);
-        self.status_label.set_text(text);
-        self.status_label.set_tooltip_text(Some(text));
-        if error {
-            self.status_label.add_css_class("error");
-        } else {
-            self.status_label.remove_css_class("error");
-        }
+        self.notice.show(text, error);
     }
 
     fn set_loading_status(&mut self, text: &str) {
-        self.status_label.remove_css_class("error");
-        self.status_label.set_text(text);
-        self.spinner.set_visible(true);
-        self.spinner.start();
+        self.notice.show_progress(text);
     }
 
     fn show_queue_panel(&mut self) {
         self.cancel_lyrics_scroll();
         self.refresh_queue_view();
         self.side_title.set_text("Queue");
+        self.side_fullscreen.set_visible(false);
         self.side_stack.set_visible_child_name("queue");
-        self.side_panel.set_visible(true);
+        self.side_panel.set_reveal_child(true);
+        self.panel_open.set(true);
         self.sync_nav();
     }
 
     fn show_lyrics_panel(&mut self) {
         self.side_title.set_text("Lyrics");
+        self.side_fullscreen.set_visible(true);
         self.side_stack.set_visible_child_name("lyrics");
-        self.side_panel.set_visible(true);
+        self.side_panel.set_reveal_child(true);
+        self.panel_open.set(true);
         self.sync_nav();
         self.suppress_lyrics_scroll_for(Duration::from_millis(180));
         self.update_lyrics_highlight_from_player();
@@ -2094,14 +2765,417 @@ impl AppUi {
         }
     }
 
+    fn open_lyrics_fullscreen(&mut self) {
+        if self.closing {
+            return;
+        }
+        if let Some(fullscreen) = self.lyrics_fullscreen.as_ref() {
+            fullscreen.window.present();
+            return;
+        }
+
+        let fullscreen = build_fullscreen_lyrics();
+        fullscreen.window.set_transient_for(Some(&self.window));
+        let weak = self.self_weak.clone();
+        fullscreen.exit.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().close_lyrics_fullscreen();
+            }
+        });
+        let weak = self.self_weak.clone();
+        fullscreen.retry.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().retry_lyrics();
+            }
+        });
+        let weak = self.self_weak.clone();
+        fullscreen.follow.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().resume_fullscreen_following();
+            }
+        });
+        let weak = self.self_weak.clone();
+        fullscreen.play_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().toggle_play();
+            }
+        });
+        let weak = self.self_weak.clone();
+        fullscreen.previous_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().previous_track();
+            }
+        });
+        let weak = self.self_weak.clone();
+        fullscreen.next_button.connect_clicked(move |_| {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().next_track();
+            }
+        });
+
+        let keys = gtk4::EventControllerKey::new();
+        let weak = self.self_weak.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gdk::Key::Escape {
+                if let Some(app) = weak.upgrade() {
+                    app.borrow_mut().close_lyrics_fullscreen();
+                }
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        fullscreen.window.add_controller(keys);
+
+        let weak = self.self_weak.clone();
+        fullscreen.window.connect_close_request(move |_| {
+            if let Some(app) = weak.upgrade() {
+                if let Ok(mut app) = app.try_borrow_mut() {
+                    app.lyrics_fullscreen = None;
+                }
+            }
+            glib::Propagation::Proceed
+        });
+
+        self.lyrics_fullscreen = Some(fullscreen);
+        let suppress = Rc::clone(
+            &self
+                .lyrics_fullscreen
+                .as_ref()
+                .expect("fullscreen was just installed")
+                .suppress_scroll,
+        );
+        let weak = self.self_weak.clone();
+        if let Some(fullscreen) = self.lyrics_fullscreen.as_ref() {
+            fullscreen
+                .scroll
+                .vadjustment()
+                .connect_value_changed(move |_| {
+                    if suppress.get() {
+                        return;
+                    }
+                    let Some(app) = weak.upgrade() else {
+                        return;
+                    };
+                    let Ok(mut app) = app.try_borrow_mut() else {
+                        return;
+                    };
+                    let synced = app
+                        .lyrics_data
+                        .as_ref()
+                        .is_some_and(|data| data.kind == LyricsKind::Synced);
+                    if let Some(fullscreen) = app.lyrics_fullscreen.as_mut() {
+                        if fullscreen.following {
+                            fullscreen.cancel_scroll();
+                            fullscreen.following = false;
+                            fullscreen.follow.set_visible(synced);
+                        }
+                    }
+                });
+        }
+        self.refresh_fullscreen_metadata();
+        self.refresh_fullscreen_backdrop();
+        self.show_fullscreen_state();
+        self.refresh_fullscreen_transport();
+        self.update_lyrics_highlight_from_player();
+        if self
+            .lyrics_fullscreen
+            .as_ref()
+            .is_some_and(|fullscreen| fullscreen.following)
+        {
+            self.schedule_fullscreen_scroll();
+        }
+        if let Some(fullscreen) = self.lyrics_fullscreen.as_ref() {
+            fullscreen.window.present();
+            fullscreen.window.fullscreen();
+            fade_in(&fullscreen.content, crate::motion::IMMERSIVE);
+        }
+    }
+
+    fn close_lyrics_fullscreen(&mut self) {
+        let Some(mut fullscreen) = self.lyrics_fullscreen.take() else {
+            return;
+        };
+        fullscreen.cancel_scroll();
+        fullscreen.window.close();
+        if let Some(display) = gdk::Display::default() {
+            gtk4::style_context_remove_provider_for_display(&display, &fullscreen.tint_provider);
+        }
+        self.window.present();
+    }
+
+    fn refresh_fullscreen_metadata(&self) {
+        let Some(fullscreen) = self.lyrics_fullscreen.as_ref() else {
+            return;
+        };
+        if let Some(entry) = self.queue.current() {
+            fullscreen.title.set_text(&entry.track.name);
+            fullscreen.artist.set_text(&entry.track.artist_line());
+        } else if self.queue.is_empty() {
+            fullscreen.title.set_text("Nothing playing");
+            fullscreen.artist.set_text("Search to start listening");
+        } else {
+            fullscreen.title.set_text("Pending queue");
+            fullscreen.artist.set_text("Press Play to start the queue");
+        }
+    }
+
+    fn refresh_fullscreen_backdrop(&mut self) {
+        let url = self
+            .queue
+            .current()
+            .and_then(|entry| entry.track.artwork_url.clone());
+        let loader = Rc::clone(&self.artwork_loader);
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        fullscreen.tint_provider.load_from_string("");
+        fullscreen.tint_layer.set_opacity(0.0);
+        fullscreen.backdrop.clear();
+        let Some(url) = url else {
+            return;
+        };
+        let provider = fullscreen.tint_provider.clone();
+        let layer = fullscreen.tint_layer.clone();
+        let slot = ArtworkSlot::with_tint(
+            &fullscreen.backdrop_picture,
+            Rc::new(move |tint| {
+                provider.load_from_string(&crate::tint::immersive_css(&tint));
+                fade_in(&layer, crate::motion::TINT);
+            }),
+        );
+        ArtworkLoader::request(&loader, &url, slot.clone());
+        fullscreen.backdrop = slot;
+    }
+
+    fn refresh_fullscreen_transport(&self) {
+        let Some(fullscreen) = self.lyrics_fullscreen.as_ref() else {
+            return;
+        };
+        let has_selection = self.queue.current().is_some() || !self.queue.is_empty();
+        fullscreen.play_button.set_sensitive(
+            !self.closing && self.bridge.is_some() && self.player_ready && has_selection,
+        );
+        fullscreen
+            .previous_button
+            .set_sensitive(has_selection && !self.closing);
+        fullscreen
+            .next_button
+            .set_sensitive(self.queue.next_index().is_some() && !self.closing);
+        let show_pause = self.playback.wants_play()
+            && (self.playback.is_playing()
+                || self.playback.is_preparing()
+                || self.playback.stream_loaded());
+        fullscreen.play_icon.set_icon_name(Some(if show_pause {
+            "media-playback-pause-symbolic"
+        } else {
+            "media-playback-start-symbolic"
+        }));
+        set_accessible_label(
+            &fullscreen.play_button,
+            if show_pause { "Pause" } else { "Play" },
+        );
+    }
+
+    fn show_fullscreen_loading(&mut self) {
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        fullscreen.active = None;
+        fullscreen.following = true;
+        fullscreen.follow.set_visible(false);
+        fullscreen.attribution.set_visible(false);
+        fullscreen.clear_rows();
+        fullscreen.retry.set_visible(false);
+        fullscreen.spinner.start();
+        fullscreen.stack.set_visible_child_name("loading");
+    }
+
+    fn show_fullscreen_message(&mut self, message: &str, retry: bool) {
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        fullscreen.active = None;
+        fullscreen.following = false;
+        fullscreen.follow.set_visible(false);
+        fullscreen.attribution.set_visible(false);
+        fullscreen.clear_rows();
+        fullscreen.spinner.stop();
+        fullscreen.message.set_text(message);
+        fullscreen.retry.set_visible(retry);
+        fullscreen.stack.set_visible_child_name("message");
+    }
+
+    fn show_fullscreen_state(&mut self) {
+        if self.lyrics_loading {
+            self.show_fullscreen_loading();
+            return;
+        }
+        let Some(data) = self.lyrics_data.clone() else {
+            let message = self.lyrics_message.text();
+            self.show_fullscreen_message(&message, self.lyrics_retry.is_visible());
+            return;
+        };
+        let weak = self.self_weak.clone();
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        fullscreen.spinner.stop();
+        fullscreen.active = None;
+        fullscreen.attribution.set_text(&data.attribution());
+        fullscreen.attribution.set_visible(true);
+        fullscreen.follow.set_visible(false);
+        match data.kind {
+            LyricsKind::Synced => {
+                fullscreen.following = true;
+                build_fullscreen_lyric_rows(fullscreen, &data, &weak);
+                fullscreen.stack.set_visible_child_name("lines");
+            }
+            LyricsKind::Plain => {
+                fullscreen.following = false;
+                build_fullscreen_lyric_rows(fullscreen, &data, &weak);
+                fullscreen.stack.set_visible_child_name("lines");
+            }
+            LyricsKind::Instrumental => {
+                fullscreen.following = false;
+                fullscreen.clear_rows();
+                fullscreen.message.set_text(
+                    data.message
+                        .as_deref()
+                        .unwrap_or("LRCLIB marks this recording as instrumental."),
+                );
+                fullscreen.retry.set_visible(false);
+                fullscreen.stack.set_visible_child_name("message");
+            }
+            LyricsKind::Missing => {
+                fullscreen.following = false;
+                fullscreen.clear_rows();
+                fullscreen.message.set_text(
+                    data.message
+                        .as_deref()
+                        .unwrap_or("LRCLIB has no lyrics for this recording."),
+                );
+                fullscreen.retry.set_visible(true);
+                fullscreen.stack.set_visible_child_name("message");
+            }
+        }
+        self.update_lyrics_highlight_from_player();
+        if data.kind == LyricsKind::Synced {
+            self.schedule_fullscreen_scroll();
+        }
+    }
+
+    fn resume_fullscreen_following(&mut self) {
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        fullscreen.following = true;
+        fullscreen.follow.set_visible(false);
+        self.update_lyrics_highlight_from_player();
+        self.scroll_fullscreen_to_active();
+    }
+
+    fn update_fullscreen_highlight(&mut self, position: u64) {
+        let Some(data) = self.lyrics_data.as_ref() else {
+            return;
+        };
+        if data.kind != LyricsKind::Synced {
+            return;
+        }
+        let active = data.active_index(position);
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        let changed = fullscreen.set_active(active);
+        if changed && active.is_some() && fullscreen.following {
+            self.schedule_fullscreen_scroll();
+        }
+    }
+
+    fn schedule_fullscreen_scroll(&mut self) {
+        let weak = self.self_weak.clone();
+        glib::idle_add_local_once(move || {
+            if let Some(app) = weak.upgrade() {
+                app.borrow_mut().scroll_fullscreen_to_active();
+            }
+        });
+    }
+
+    fn scroll_fullscreen_to_active(&mut self) {
+        let Some(fullscreen) = self.lyrics_fullscreen.as_mut() else {
+            return;
+        };
+        let Some(index) = fullscreen.active else {
+            return;
+        };
+        let Some(widget) = fullscreen.line_widgets.get(index) else {
+            return;
+        };
+        let Some(bounds) = widget.compute_bounds(&fullscreen.lines) else {
+            return;
+        };
+        let adjustment = fullscreen.scroll.vadjustment();
+        let center = f64::from(bounds.y()) + f64::from(bounds.height()) / 2.0;
+        let page = adjustment.page_size();
+        let lower = adjustment.lower();
+        let upper = (adjustment.upper() - page).max(lower);
+        let target = (center - page / 2.0).clamp(lower, upper);
+        fullscreen.cancel_scroll();
+        if !animations_enabled() {
+            let previous = fullscreen.suppress_scroll.replace(true);
+            adjustment.set_value(target);
+            fullscreen.suppress_scroll.set(previous);
+            return;
+        }
+        let from = adjustment.value();
+        let started = Instant::now();
+        let weak = self.self_weak.clone();
+        fullscreen.scroll_animation = Some(glib::timeout_add_local(
+            Duration::from_millis(16),
+            move || {
+                let Some(app) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                let Ok(mut app) = app.try_borrow_mut() else {
+                    return glib::ControlFlow::Break;
+                };
+                if app.closing {
+                    if let Some(fullscreen) = app.lyrics_fullscreen.as_mut() {
+                        fullscreen.scroll_animation = None;
+                    }
+                    return glib::ControlFlow::Break;
+                }
+                let Some(fullscreen) = app.lyrics_fullscreen.as_mut() else {
+                    return glib::ControlFlow::Break;
+                };
+                if !fullscreen.following {
+                    fullscreen.scroll_animation = None;
+                    return glib::ControlFlow::Break;
+                }
+                let progress = (started.elapsed().as_secs_f64() / 0.26).min(1.0);
+                let eased = progress * progress * (3.0 - 2.0 * progress);
+                let previous = fullscreen.suppress_scroll.replace(true);
+                adjustment.set_value(from + (target - from) * eased);
+                fullscreen.suppress_scroll.set(previous);
+                if progress >= 1.0 {
+                    fullscreen.scroll_animation = None;
+                    glib::ControlFlow::Break
+                } else {
+                    glib::ControlFlow::Continue
+                }
+            },
+        ));
+    }
+
     fn close_side_panel(&mut self) {
         self.cancel_lyrics_scroll();
-        self.side_panel.set_visible(false);
+        self.side_panel.set_reveal_child(false);
+        self.panel_open.set(false);
         self.sync_nav();
     }
 
     fn toggle_panel(&mut self, name: &str) {
-        let same = self.side_panel.is_visible()
+        let same = self.panel_open.get()
             && self.side_stack.visible_child_name().as_deref() == Some(name);
         if same {
             self.close_side_panel();
@@ -2127,6 +3201,9 @@ impl AppUi {
         self.lyrics_attribution.set_visible(false);
         self.clear_lyric_rows();
         self.show_lyrics_loading();
+        self.show_fullscreen_loading();
+        self.refresh_fullscreen_metadata();
+        self.refresh_fullscreen_backdrop();
         let Some(bridge) = self.bridge.as_ref() else {
             self.lyrics_failed("Lyrics need the checkout Python bridge.");
             return;
@@ -2198,6 +3275,7 @@ impl AppUi {
         } else {
             self.lyrics_spinner.stop();
         }
+        self.show_fullscreen_state();
     }
 
     fn lyrics_failed(&mut self, message: &str) {
@@ -2216,6 +3294,7 @@ impl AppUi {
             .set_text(&format!("Lyrics unavailable. {message}"));
         self.lyrics_retry.set_visible(true);
         self.lyrics_stack.set_visible_child_name("message");
+        self.show_fullscreen_message(&format!("Lyrics unavailable. {message}"), true);
     }
 
     fn show_lyrics_idle(&mut self) {
@@ -2232,6 +3311,7 @@ impl AppUi {
             .set_text("Select a recording to see its lyrics.");
         self.lyrics_retry.set_visible(false);
         self.lyrics_stack.set_visible_child_name("message");
+        self.show_fullscreen_message("Select a recording to see its lyrics.", false);
     }
 
     fn show_lyrics_loading(&mut self) {
@@ -2259,7 +3339,8 @@ impl AppUi {
                 let button = gtk4::Button::new();
                 button.add_css_class("lyric-line");
                 button.set_hexpand(true);
-                button.set_can_focus(false);
+                button.set_can_focus(true);
+                set_accessible_label(&button, &format!("Seek to {}", line.text));
                 let text = lyric_label(&line.text, "lyric-text");
                 button.set_child(Some(&text));
                 let weak = self.self_weak.clone();
@@ -2297,7 +3378,7 @@ impl AppUi {
     }
 
     fn tick_lyrics(&mut self) {
-        if self.closing || !self.side_panel.is_visible() {
+        if self.closing || (!self.panel_open.get() && self.lyrics_fullscreen.is_none()) {
             return;
         }
         if !self
@@ -2311,6 +3392,7 @@ impl AppUi {
             return;
         };
         self.update_lyrics_highlight(position);
+        self.update_fullscreen_highlight(position);
     }
 
     fn update_lyrics_highlight(&mut self, position: u64) {
@@ -2328,11 +3410,17 @@ impl AppUi {
             if let Some(label) = self.lyrics_line_labels.get(previous) {
                 label.remove_css_class("active");
             }
+            if let Some(widget) = self.lyrics_line_widgets.get(previous) {
+                widget.remove_css_class("active");
+            }
         }
         self.lyrics_active = active;
         if let Some(index) = active {
             if let Some(label) = self.lyrics_line_labels.get(index) {
                 label.add_css_class("active");
+            }
+            if let Some(widget) = self.lyrics_line_widgets.get(index) {
+                widget.add_css_class("active");
             }
             if self.lyrics_following {
                 self.scroll_to_active_lyric();
@@ -2383,7 +3471,7 @@ impl AppUi {
                 let mut app = app.borrow_mut();
                 if app.closing
                     || !app.lyrics_following
-                    || !app.side_panel.is_visible()
+                    || !app.panel_open.get()
                     || app.side_stack.visible_child_name().as_deref() != Some("lyrics")
                 {
                     app.lyrics_scroll_animation = None;
@@ -2451,10 +3539,31 @@ impl AppUi {
         } else {
             start
         };
+        self.lastfm.borrow_mut().break_continuity();
         match player.seek_to_ms(target) {
             Ok(()) => {
+                if self
+                    .lyrics_data
+                    .as_ref()
+                    .is_some_and(|data| data.kind == LyricsKind::Synced)
+                {
+                    self.lyrics_following = true;
+                    self.lyrics_follow.set_visible(false);
+                    self.suppress_lyrics_scroll_for(Duration::from_millis(400));
+                    if let Some(fullscreen) = self.lyrics_fullscreen.as_mut() {
+                        fullscreen.following = true;
+                        fullscreen.follow.set_visible(false);
+                        fullscreen.suppress_scroll.set(true);
+                        let suppress = Rc::clone(&fullscreen.suppress_scroll);
+                        glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                            suppress.set(false);
+                        });
+                    }
+                }
                 self.set_status("Seeked to the selected lyric line.", false);
                 self.tick_lyrics();
+                self.schedule_lyrics_scroll();
+                self.schedule_fullscreen_scroll();
             }
             Err(message) => self.set_status(&message, true),
         }
@@ -2462,10 +3571,15 @@ impl AppUi {
 
     fn shutdown(&mut self) {
         self.cancel_lyrics_scroll();
+        if let Some(mut fullscreen) = self.lyrics_fullscreen.take() {
+            fullscreen.cancel_scroll();
+            fullscreen.window.close();
+        }
         if self.closing {
             return;
         }
         self.closing = true;
+        self.cancel_radio();
         self.resolve_seq = self.resolve_seq.saturating_add(1);
         self.lyrics_seq = 0;
         self.prepared = None;
@@ -2474,7 +3588,7 @@ impl AppUi {
             bridge.shutdown();
         }
         self.artwork_loader.borrow_mut().shutdown();
-        self.spinner.stop();
+        self.notice.hide();
     }
 }
 
@@ -2483,6 +3597,7 @@ fn install_callbacks(
     rx: mpsc::Receiver<JobResult>,
     player_rx: mpsc::Receiver<PlayerEvent>,
     library_rx: mpsc::Receiver<crate::library::Action>,
+    mpris_rx: mpsc::Receiver<MprisCommand>,
 ) {
     let weak = Rc::downgrade(ui);
     ui.borrow().search_button.connect_clicked(move |_| {
@@ -2495,13 +3610,6 @@ fn install_callbacks(
     ui.borrow().search_entry.connect_activate(move |_| {
         if let Some(app) = weak.upgrade() {
             app.borrow_mut().start_search();
-        }
-    });
-
-    let weak = Rc::downgrade(ui);
-    ui.borrow().home_search_button.connect_clicked(move |_| {
-        if let Some(app) = weak.upgrade() {
-            app.borrow_mut().navigate("search");
         }
     });
 
@@ -2519,16 +3627,16 @@ fn install_callbacks(
     }
 
     let weak = Rc::downgrade(ui);
-    ui.borrow().nav_queue.connect_clicked(move |_| {
+    ui.borrow().side_close.connect_clicked(move |_| {
         if let Some(app) = weak.upgrade() {
-            app.borrow_mut().toggle_panel("queue");
+            app.borrow_mut().close_side_panel();
         }
     });
 
     let weak = Rc::downgrade(ui);
-    ui.borrow().side_close.connect_clicked(move |_| {
+    ui.borrow().side_fullscreen.connect_clicked(move |_| {
         if let Some(app) = weak.upgrade() {
-            app.borrow_mut().close_side_panel();
+            app.borrow_mut().open_lyrics_fullscreen();
         }
     });
 
@@ -2586,10 +3694,14 @@ fn install_callbacks(
         }
     });
 
+    let suppress = Rc::clone(&ui.borrow().volume_suppress);
     let weak = Rc::downgrade(ui);
     ui.borrow()
         .volume_scale
         .connect_value_changed(move |scale| {
+            if suppress.get() {
+                return;
+            }
             if let Some(app) = weak.upgrade() {
                 app.borrow_mut().set_volume(scale.value());
             }
@@ -2675,7 +3787,7 @@ fn install_callbacks(
             };
             let mut app = app.borrow_mut();
             if app.lyrics_following
-                && app.side_panel.is_visible()
+                && app.panel_open.get()
                 && app
                     .lyrics_data
                     .as_ref()
@@ -2695,10 +3807,7 @@ fn install_callbacks(
                     return;
                 };
                 if app.main_stack.visible_child_name().as_deref() == Some("library") {
-                    crate::library::LibraryPane::request(
-                        &app.library,
-                        serde_json::json!({"operation":"refresh"}),
-                    );
+                    crate::library::LibraryPane::refresh_on_focus(&app.library);
                 }
             }
         }
@@ -2730,6 +3839,7 @@ fn install_callbacks(
                         ),
                     }
                 }
+                crate::library::Action::OpenPlaylist(id) => ui.open_playlist(&id),
                 crate::library::Action::Play(tracks, index) => {
                     // Start the selected occurrence, preserving duplicate song positions.
                     if let Some(entry) = ui.queue.replace_search(&tracks, index) {
@@ -2737,6 +3847,10 @@ fn install_callbacks(
                         ui.refresh_queue_view();
                         ui.begin_entry(&entry, true);
                     }
+                }
+                crate::library::Action::Radio(track) => ui.start_song_radio(track),
+                crate::library::Action::FocusSearch => {
+                    ui.search_entry.grab_focus();
                 }
                 crate::library::Action::Queue(track, next) => {
                     if next {
@@ -2749,6 +3863,9 @@ fn install_callbacks(
         }
         while let Ok(result) = rx.try_recv() {
             app.borrow_mut().handle_job(result);
+        }
+        while let Ok(command) = mpris_rx.try_recv() {
+            app.borrow_mut().handle_mpris(command);
         }
         while let Ok(event) = player_rx.try_recv() {
             app.borrow_mut().handle_player_event(event);
@@ -2800,15 +3917,12 @@ fn track_row(track: &Track, weak: &Weak<RefCell<AppUi>>) -> (gtk4::ListBoxRow, A
     menu_icon.set_pixel_size(14);
     menu_button.set_child(Some(&menu_icon));
     menu_button.add_css_class("row-menu");
-    menu_button.set_tooltip_text(Some("Queue options"));
+    menu_button.set_tooltip_text(Some("Song options"));
 
     let popover = gtk4::Popover::new();
     popover.add_css_class("track-menu");
+    popover.set_has_arrow(false);
     let choices = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    choices.set_margin_top(5);
-    choices.set_margin_bottom(5);
-    choices.set_margin_start(5);
-    choices.set_margin_end(5);
     let play_next = gtk4::Button::with_label("Play next");
     play_next.add_css_class("menu-action");
     let add_queue = gtk4::Button::with_label("Add to queue");
@@ -2818,6 +3932,18 @@ fn track_row(track: &Track, weak: &Weak<RefCell<AppUi>>) -> (gtk4::ListBoxRow, A
     let add_playlist = gtk4::Button::with_label("Add to playlist");
     add_playlist.add_css_class("menu-action");
     choices.append(&add_playlist);
+    let radio = gtk4::Button::with_label("Song radio");
+    radio.add_css_class("menu-action");
+    choices.append(&radio);
+    let radio_weak = weak.clone();
+    let radio_track = track.clone();
+    let radio_popover = popover.clone();
+    radio.connect_clicked(move |_| {
+        radio_popover.popdown();
+        if let Some(app) = radio_weak.upgrade() {
+            app.borrow_mut().start_song_radio(radio_track.clone());
+        }
+    });
     let playlist_weak = weak.clone();
     let playlist_track = track.clone();
     let playlist_popover = popover.clone();
@@ -2887,6 +4013,57 @@ fn recent_card(
     card.connect_clicked(move |_| {
         if let Some(app) = weak.upgrade() {
             app.borrow_mut().activate_recent(index);
+        }
+    });
+    let slot = ArtworkSlot::new(&artwork_picture);
+    (card, slot)
+}
+
+fn album_card(group: &SessionGroup, weak: &Weak<RefCell<AppUi>>) -> (gtk4::Button, ArtworkSlot) {
+    let album = group.album.as_deref().unwrap_or_default();
+    let count = group.tracks.len();
+    let card = gtk4::Button::new();
+    card.add_css_class("recent-card");
+    card.add_css_class("album-card");
+    card.set_size_request(HOME_CARD_MIN_WIDTH, -1);
+    card.set_hexpand(true);
+    card.set_halign(gtk4::Align::Fill);
+    card.set_tooltip_text(Some(&format!(
+        "Play {album} by {} · {count} {}",
+        group.artist,
+        noun(count, "song", "songs")
+    )));
+    let content = gtk4::Box::new(gtk4::Orientation::Vertical, 7);
+    content.set_hexpand(true);
+    content.set_halign(gtk4::Align::Fill);
+    let (artwork_frame, artwork_picture) = fill_artwork(24);
+    content.append(&artwork_frame);
+    let title = label(album, "card-title");
+    title.set_ellipsize(pango::EllipsizeMode::End);
+    title.set_max_width_chars(24);
+    let meta = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    let artist = label(&group.artist, "card-artist");
+    artist.set_hexpand(true);
+    artist.set_ellipsize(pango::EllipsizeMode::End);
+    artist.set_max_width_chars(18);
+    let badge = label(
+        &format!("{count} {}", noun(count, "song", "songs")),
+        "album-badge",
+    );
+    meta.append(&artist);
+    meta.append(&badge);
+    content.append(&title);
+    content.append(&meta);
+    card.set_child(Some(&content));
+    set_accessible_label(
+        &card,
+        &format!("Play {album} by {} · {count} {}", group.artist, noun(count, "song", "songs")),
+    );
+    let weak = weak.clone();
+    let first_index = group.first_index;
+    card.connect_clicked(move |_| {
+        if let Some(app) = weak.upgrade() {
+            app.borrow_mut().activate_recent(first_index);
         }
     });
     let slot = ArtworkSlot::new(&artwork_picture);
@@ -3021,7 +4198,11 @@ fn label(text: &str, class: &str) -> gtk4::Label {
 }
 
 fn noun<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
-    if count == 1 { singular } else { plural }
+    if count == 1 {
+        singular
+    } else {
+        plural
+    }
 }
 
 fn set_active(button: &gtk4::Button, active: bool) {
@@ -3081,7 +4262,8 @@ mod layout_tests {
             let (card, _) = recent_card(&track, index, &Weak::new());
             home.recent_flow.insert(&card, -1);
         }
-        home.stack.set_visible_child_name("recent");
+        // refresh_home shows the session section once recordings exist.
+        home.session_section.set_visible(true);
         pages.set_visible_child_name("home");
         window.present();
         for (width, height) in [(1180, 760), (780, 580), (1180, 760)] {
@@ -3129,11 +4311,253 @@ mod layout_tests {
     }
 
     #[test]
+    #[ignore = "requires a native GTK display; run with --ignored --test-threads=1"]
+    fn fullscreen_highlight_changes_only_when_active_line_changes() {
+        gtk4::init().expect("GTK display");
+        let mut fullscreen = build_fullscreen_lyrics();
+        assert!(!fullscreen.set_active(None));
+        assert!(fullscreen.set_active(Some(0)));
+        for _ in 0..10 {
+            assert!(
+                !fullscreen.set_active(Some(0)),
+                "unchanged ticks must not restart scrolling"
+            );
+        }
+        assert!(fullscreen.set_active(Some(1)));
+        assert!(fullscreen.set_active(None));
+        assert!(!fullscreen.set_active(None));
+    }
+
+    #[test]
     fn progress_seek_targets_are_clamped() {
         assert_eq!(seek_target(0.5, 200_000), Some(100_000));
         assert_eq!(seek_target(-1.0, 200_000), Some(0));
         assert_eq!(seek_target(2.0, 200_000), Some(199_900));
         assert_eq!(seek_target(f64::NAN, 200_000), None);
         assert_eq!(seek_target(0.5, 0), None);
+    }
+
+    /// Renders the widget at its current style and returns one pixel, so a CSS
+    /// transition can be observed frame by frame.
+    fn sample(widget: &gtk4::Widget) -> Option<Vec<u8>> {
+        let width = widget.width().max(1);
+        let height = widget.height().max(1);
+        let paintable = gtk4::WidgetPaintable::new(Some(widget));
+        let snapshot = gtk4::Snapshot::new();
+        paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
+        let node = snapshot.to_node()?;
+        let native = widget.native()?;
+        let renderer = native.renderer()?;
+        // The explicit viewport keeps the texture at the widget's size even when
+        // the widget itself paints nothing (a transparent box renders tiny).
+        let viewport =
+            gtk4::graphene::Rect::new(0.0, 0.0, width as f32, height as f32);
+        let texture = renderer.render_texture(&node, Some(&viewport));
+        // Read the pixels in memory: a PNG per frame puts encode and disk I/O
+        // between samples, which misses a 120 ms transition on a loaded
+        // machine. A window manager can resize the toplevel mid-run, so index
+        // by the texture's own geometry rather than the widget's.
+        let texture_width = texture.width().max(1) as usize;
+        let texture_height = texture.height().max(1) as usize;
+        if texture_width < 32 || texture_height < 32 {
+            return None;
+        }
+        let mut downloader = gtk4::gdk::TextureDownloader::new(&texture);
+        downloader.set_format(gtk4::gdk::MemoryFormat::R8g8b8a8);
+        let (bytes, stride) = downloader.download_bytes();
+        let data: &[u8] = bytes.as_ref();
+        let x = texture_width / 2;
+        let y = 12.min(texture_height - 1);
+        let offset = y * stride + x * 4;
+        Some(data.get(offset..offset + 4)?.to_vec())
+    }
+
+    fn pump(millis: u64) {
+        let until = Instant::now() + Duration::from_millis(millis);
+        while Instant::now() < until {
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Restarts the fade up to three times and samples every frame: a starved
+    /// frame must not skip past the intermediate opacity.
+    fn assert_fade_animates(layer: &gtk4::Box, duration: Duration, name: &str) {
+        let animated = (0..3).any(|_| {
+            fade_in(layer, duration);
+            let deadline = Instant::now() + duration + Duration::from_millis(100);
+            while Instant::now() < deadline {
+                pump(1);
+                let opacity = layer.opacity();
+                if opacity > 0.0 && opacity < 1.0 {
+                    return true;
+                }
+            }
+            false
+        });
+        assert!(animated, "{name} did not animate");
+        pump(duration.as_millis() as u64 + 100);
+        assert!(layer.opacity() > 0.99, "{name} did not finish");
+    }
+
+    #[test]
+    #[ignore = "requires a native GTK display; run with --ignored --test-threads=1"]
+    fn css_transitions_and_tick_fades_animate_and_honour_reduce_animation() {
+        gtk4::init().expect("GTK display");
+        install_css();
+        let settings = gtk4::Settings::default().expect("GTK settings");
+        settings.set_gtk_enable_animations(true);
+
+        let window = gtk4::Window::new();
+        window.set_default_size(240, 100);
+        // Entries carry the same stylesheet transition as buttons and rows, and
+        // have no hover rule, so a class swap is a deterministic trigger.
+        let entry = gtk4::Entry::new();
+        entry.add_css_class("settings-entry");
+        entry.set_size_request(200, 40);
+        entry.set_halign(gtk4::Align::Start);
+        entry.set_valign(gtk4::Align::Center);
+        window.set_child(Some(&entry));
+        window.present();
+        pump(120);
+        let widget = entry.clone().upcast::<gtk4::Widget>();
+        let idle = sample(&widget).expect("idle sample");
+
+        // A starved frame can land after the 120 ms window, so each attempt
+        // retries the swap instead of failing on one missed frame.
+        let mut changed = idle.clone();
+        let animating = (0..3).any(|attempt| {
+            if attempt > 0 {
+                entry.remove_css_class("sidebar-entry");
+                entry.add_css_class("settings-entry");
+                pump(200);
+            }
+            entry.remove_css_class("settings-entry");
+            entry.add_css_class("sidebar-entry");
+            let mut frames = Vec::new();
+            let deadline = Instant::now() + Duration::from_millis(400);
+            while Instant::now() < deadline {
+                pump(1);
+                if let Some(pixel) = sample(&widget) {
+                    frames.push(pixel);
+                }
+            }
+            if let Some(last) = frames.last() {
+                changed = last.clone();
+            }
+            frames
+                .iter()
+                .any(|frame| *frame != idle && *frame != changed)
+        });
+        assert_ne!(idle, changed, "the class change did not change the colour");
+        assert!(
+            animating,
+            "the change snapped to its end colour: no intermediate frame was painted"
+        );
+
+        // Reduce animation applies the same change without a transition.
+        settings.set_gtk_enable_animations(false);
+        entry.remove_css_class("sidebar-entry");
+        entry.add_css_class("settings-entry");
+        // One frame, not the whole 120 ms: a transition would still be moving.
+        pump(20);
+        let reduced = sample(&widget).expect("reduced sample");
+        assert_eq!(
+            reduced, idle,
+            "reduce animation still animated the class change"
+        );
+
+        // The tick-driven fades share the same switch.
+        let layer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        layer.set_size_request(120, 60);
+        layer.add_css_class("tint-immersive");
+        let host = gtk4::Window::new();
+        host.set_child(Some(&layer));
+        host.present();
+        pump(80);
+        fade_in(&layer, crate::motion::TINT);
+        pump(2);
+        assert_eq!(
+            layer.opacity(),
+            1.0,
+            "reduce animation did not skip the tint fade"
+        );
+
+        settings.set_gtk_enable_animations(true);
+        assert_fade_animates(&layer, crate::motion::TINT, "tint crossfade");
+        // The immersive entry uses the same helper over its own duration.
+        assert_fade_animates(&layer, crate::motion::IMMERSIVE, "immersive fade");
+
+        host.close();
+        window.close();
+    }
+
+    #[test]
+    #[ignore = "requires a native GTK display; run with --ignored --test-threads=1"]
+    fn display_level_tint_providers_paint_only_their_own_surface() {
+        gtk4::init().expect("GTK display");
+        let display = gdk::Display::default().expect("GTK display");
+        let tint = crate::tint::Tint {
+            base: [200, 40, 60],
+            accent: [40, 120, 200],
+        };
+
+        let window = gtk4::Window::new();
+        window.set_default_size(340, 140);
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+        let hero = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        hero.add_css_class("tint-hero");
+        hero.set_size_request(140, 80);
+        hero.set_valign(gtk4::Align::Start);
+        hero.append(&label("Hero", "card-title"));
+        let immersive = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        immersive.add_css_class("tint-immersive");
+        immersive.set_size_request(140, 80);
+        immersive.set_valign(gtk4::Align::Start);
+        immersive.append(&label("Immersive", "card-title"));
+        row.append(&hero);
+        row.append(&immersive);
+        window.set_child(Some(&row));
+        window.present();
+        pump(120);
+
+        let hero_widget = hero.clone().upcast::<gtk4::Widget>();
+        let immersive_widget = immersive.clone().upcast::<gtk4::Widget>();
+        let hero_before = sample(&hero_widget).expect("hero sample");
+        let immersive_before = sample(&immersive_widget).expect("immersive sample");
+
+        let hero_provider = gtk4::CssProvider::new();
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &hero_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        );
+        hero_provider.load_from_string(&crate::tint::hero_css(&tint));
+        pump(150);
+        let hero_after = sample(&hero_widget).expect("hero sample");
+        let immersive_after = sample(&immersive_widget).expect("immersive sample");
+        assert_ne!(hero_before, hero_after, "the hero tint did not paint");
+        assert_eq!(
+            immersive_before, immersive_after,
+            "the hero tint leaked onto the immersive surface"
+        );
+
+        let immersive_provider = gtk4::CssProvider::new();
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &immersive_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        );
+        immersive_provider.load_from_string(&crate::tint::immersive_css(&tint));
+        pump(150);
+        let immersive_tinted = sample(&immersive_widget).expect("immersive sample");
+        assert_ne!(
+            immersive_after, immersive_tinted,
+            "the immersive tint did not paint"
+        );
+
+        window.close();
     }
 }

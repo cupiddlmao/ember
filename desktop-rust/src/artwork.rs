@@ -1,4 +1,5 @@
 use crate::model::valid_artwork_url;
+use crate::tint::Tint;
 use gtk4::gio;
 use gtk4::prelude::*;
 use gtk4::{gdk, glib};
@@ -11,7 +12,8 @@ const MAX_CONCURRENT: usize = 2;
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const READ_CHUNK: usize = 32 * 1024;
 const MAX_DIMENSION: u32 = 1024;
-const PENDING_LIMIT: usize = 64;
+// Retain requests for a full 5000-song playlist plus other visible surfaces.
+const PENDING_LIMIT: usize = 5128;
 const WAITERS_LIMIT: usize = 64;
 const CACHE_LIMIT: usize = 64;
 const REQUEST_TIMEOUT_SECONDS: u32 = 15;
@@ -20,6 +22,7 @@ const REQUEST_TIMEOUT_SECONDS: u32 = 15;
 pub struct ArtworkSlot {
     picture: glib::WeakRef<gtk4::Picture>,
     desired: Rc<RefCell<String>>,
+    on_tint: Option<Rc<dyn Fn(Tint)>>,
 }
 
 impl ArtworkSlot {
@@ -27,6 +30,15 @@ impl ArtworkSlot {
         Self {
             picture: picture.downgrade(),
             desired: Rc::new(RefCell::new(String::new())),
+            on_tint: None,
+        }
+    }
+
+    pub fn with_tint(picture: &gtk4::Picture, on_tint: Rc<dyn Fn(Tint)>) -> Self {
+        Self {
+            picture: picture.downgrade(),
+            desired: Rc::new(RefCell::new(String::new())),
+            on_tint: Some(on_tint),
         }
     }
 
@@ -37,30 +49,60 @@ impl ArtworkSlot {
         }
     }
 
+    pub fn accepts(&self, url: &str) -> bool {
+        self.desired.borrow().as_str() == url
+    }
+
     fn mark(&self, url: &str) {
         self.desired.replace(url.to_owned());
     }
 
     fn is_current(&self, url: &str) -> bool {
-        self.desired.borrow().as_str() == url && self.picture.upgrade().is_some()
+        self.accepts(url) && self.picture.upgrade().is_some()
     }
 
-    fn apply(&self, url: &str, texture: &gdk::Texture) {
-        if self.is_current(url)
-            && let Some(picture) = self.picture.upgrade()
-        {
+    fn apply(&self, url: &str, texture: &gdk::Texture, tint: Option<Tint>) {
+        if !self.is_current(url) {
+            return;
+        }
+        if let Some(picture) = self.picture.upgrade() {
             picture.set_paintable(Some(texture));
+        }
+        if let (Some(callback), Some(tint)) = (self.on_tint.as_ref(), tint) {
+            callback(tint);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn for_test(url: &str) -> Self {
+        Self {
+            picture: glib::WeakRef::new(),
+            desired: Rc::new(RefCell::new(url.to_owned())),
+            on_tint: None,
         }
     }
 }
 
+#[derive(Clone)]
+struct CachedArtwork {
+    texture: gdk::Texture,
+    tint: Option<Tint>,
+}
+
+struct TintWaiter {
+    url: String,
+    callback: Rc<dyn Fn(Tint)>,
+}
+
 pub struct ArtworkLoader {
     session: soup::Session,
-    cache: HashMap<String, gdk::Texture>,
+    cache: HashMap<String, CachedArtwork>,
     pending: HashMap<String, Vec<ArtworkSlot>>,
+    tint_waiters: HashMap<u64, TintWaiter>,
     queue: VecDeque<String>,
     active: HashMap<u64, gio::Cancellable>,
     next_request: u64,
+    next_tint: u64,
     cancelled: bool,
 }
 
@@ -73,9 +115,11 @@ impl Default for ArtworkLoader {
             session,
             cache: HashMap::new(),
             pending: HashMap::new(),
+            tint_waiters: HashMap::new(),
             queue: VecDeque::new(),
             active: HashMap::new(),
             next_request: 0,
+            next_tint: 0,
             cancelled: false,
         }
     }
@@ -89,8 +133,8 @@ impl ArtworkLoader {
         }
         slot.mark(url);
         let cached = loader.borrow().cache.get(url).cloned();
-        if let Some(texture) = cached {
-            slot.apply(url, &texture);
+        if let Some(artwork) = cached {
+            slot.apply(url, &artwork.texture, artwork.tint);
             return;
         }
         {
@@ -104,16 +148,104 @@ impl ArtworkLoader {
         Self::pump(loader.clone());
     }
 
-    fn enqueue(&mut self, url: &str, slot: ArtworkSlot) {
-        if !self.pending.contains_key(url) {
-            if self.pending.len() >= PENDING_LIMIT
-                && let Some(oldest) = self.queue.pop_front()
-            {
-                self.pending.remove(&oldest);
-            }
-            self.pending.insert(url.to_owned(), Vec::new());
-            self.queue.push_back(url.to_owned());
+    pub fn request_tint(
+        loader: &Rc<RefCell<Self>>,
+        url: &str,
+        callback: Rc<dyn Fn(Tint)>,
+    ) -> u64 {
+        if !valid_artwork_url(url) {
+            return 0;
         }
+        let cached = {
+            let loader = loader.borrow();
+            if loader.cancelled {
+                return 0;
+            }
+            loader.cache.get(url).cloned()
+        };
+        if let Some(artwork) = cached {
+            if let Some(tint) = artwork.tint {
+                callback(tint);
+            }
+            return 0;
+        }
+        let mut state = loader.borrow_mut();
+        if state.cancelled {
+            return 0;
+        }
+        state.prune();
+        state.ensure_pending(url);
+        let token = state.next_tint_token();
+        state.tint_waiters.insert(
+            token,
+            TintWaiter {
+                url: url.to_owned(),
+                callback,
+            },
+        );
+        drop(state);
+        Self::pump(loader.clone());
+        token
+    }
+
+    pub fn cancel_tint(loader: &Rc<RefCell<Self>>, token: u64) {
+        if token == 0 {
+            return;
+        }
+        if let Ok(mut loader) = loader.try_borrow_mut() {
+            loader.cancel_tint_token(token);
+        }
+    }
+
+    fn cancel_tint_token(&mut self, token: u64) {
+        self.tint_waiters.remove(&token);
+        self.prune();
+    }
+
+    fn next_tint_token(&mut self) -> u64 {
+        self.next_tint = self.next_tint.wrapping_add(1);
+        if self.next_tint == 0 {
+            self.next_tint = 1;
+        }
+        self.next_tint
+    }
+
+    #[cfg(test)]
+    fn begin_tint(&mut self, url: &str) -> u64 {
+        let callback: Rc<dyn Fn(Tint)> = Rc::new(|_| {});
+        let token = self.next_tint_token();
+        self.tint_waiters.insert(
+            token,
+            TintWaiter {
+                url: url.to_owned(),
+                callback,
+            },
+        );
+        self.ensure_pending(url);
+        token
+    }
+
+    #[cfg(test)]
+    fn pending_tint_waiters(&self) -> usize {
+        self.tint_waiters.len()
+    }
+
+    fn ensure_pending(&mut self, url: &str) {
+        if self.pending.contains_key(url) {
+            return;
+        }
+        if self.pending.len() >= PENDING_LIMIT
+            && let Some(oldest) = self.queue.pop_front()
+        {
+            self.pending.remove(&oldest);
+            self.tint_waiters.retain(|_, waiter| waiter.url != oldest);
+        }
+        self.pending.insert(url.to_owned(), Vec::new());
+        self.queue.push_back(url.to_owned());
+    }
+
+    fn enqueue(&mut self, url: &str, slot: ArtworkSlot) {
+        self.ensure_pending(url);
         if let Some(waiters) = self.pending.get_mut(url) {
             // Replace repeat requests for the same picture rather than retaining clones.
             waiters.retain(|old| old.picture != slot.picture);
@@ -129,7 +261,12 @@ impl ArtworkLoader {
             waiters.retain(|slot| slot.is_current(url));
         }
         self.queue.retain(|url| {
-            if self.pending.get(url).is_some_and(|slots| !slots.is_empty()) {
+            let has_slots = self.pending.get(url).is_some_and(|slots| !slots.is_empty());
+            let has_tint = self
+                .tint_waiters
+                .values()
+                .any(|waiter| waiter.url.as_str() == url.as_str());
+            if has_slots || has_tint {
                 true
             } else {
                 self.pending.remove(url);
@@ -145,6 +282,7 @@ impl ArtworkLoader {
         }
         self.active.clear();
         self.pending.clear();
+        self.tint_waiters.clear();
         self.queue.clear();
         self.cache.clear();
     }
@@ -269,11 +407,17 @@ impl ArtworkLoader {
     }
 
     fn decode(loader: Rc<RefCell<Self>>, url: &str, id: u64, body: Vec<u8>) {
-        let wanted = loader
-            .borrow()
-            .pending
-            .get(url)
-            .is_some_and(|slots| slots.iter().any(|slot| slot.is_current(url)));
+        let wanted = {
+            let loader = loader.borrow();
+            loader
+                .pending
+                .get(url)
+                .is_some_and(|slots| slots.iter().any(|slot| slot.is_current(url)))
+                || loader
+                    .tint_waiters
+                    .values()
+                    .any(|waiter| waiter.url.as_str() == url)
+        };
         if body.is_empty() || !wanted || loader.borrow().cancelled {
             Self::finish(loader, url, id, None);
             return;
@@ -281,49 +425,74 @@ impl ArtworkLoader {
         let url = url.to_owned();
         glib::spawn_future_local(async move {
             // Keep the request active until decoding completes, bounding worker count too.
-            let decoded = gio::spawn_blocking(move || decode_pixels(body))
-                .await
-                .ok()
-                .flatten();
+            let decoded = gio::spawn_blocking(move || {
+                decode_pixels(body).map(|(pixels, width, height)| {
+                    let tint = crate::tint::from_rgba(&pixels, width, height);
+                    (pixels, width, height, tint)
+                })
+            })
+            .await
+            .ok()
+            .flatten();
             if loader.borrow().cancelled {
                 Self::finish(loader, &url, id, None);
                 return;
             }
-            let texture = decoded.map(|(pixels, width, height)| {
-                gdk::MemoryTexture::new(
+            let artwork = decoded.map(|(pixels, width, height, tint)| {
+                let texture = gdk::MemoryTexture::new(
                     width as i32,
                     height as i32,
                     gdk::MemoryFormat::R8g8b8a8,
                     &glib::Bytes::from_owned(pixels),
                     width as usize * 4,
                 )
-                .upcast::<gdk::Texture>()
+                .upcast::<gdk::Texture>();
+                CachedArtwork { texture, tint }
             });
-            Self::finish(loader, &url, id, texture);
+            Self::finish(loader, &url, id, artwork);
         });
     }
 
-    fn finish(loader: Rc<RefCell<Self>>, url: &str, id: u64, texture: Option<gdk::Texture>) {
-        let waiters = {
-            let mut loader = loader.borrow_mut();
-            loader.active.remove(&id);
-            let waiters = loader.pending.remove(url).unwrap_or_default();
-            if loader.cancelled {
+    fn finish(
+        loader: Rc<RefCell<Self>>,
+        url: &str,
+        id: u64,
+        artwork: Option<CachedArtwork>,
+    ) {
+        let (waiters, tint_waiters) = {
+            let mut state = loader.borrow_mut();
+            state.active.remove(&id);
+            let waiters = state.pending.remove(url).unwrap_or_default();
+            let tint_waiters: Vec<Rc<dyn Fn(Tint)>> = state
+                .tint_waiters
+                .iter()
+                .filter(|(_, waiter)| waiter.url.as_str() == url)
+                .map(|(_, waiter)| Rc::clone(&waiter.callback))
+                .collect();
+            state
+                .tint_waiters
+                .retain(|_, waiter| waiter.url.as_str() != url);
+            if state.cancelled {
                 return;
             }
-            if let Some(texture) = texture.as_ref() {
-                if loader.cache.len() >= CACHE_LIMIT
-                    && let Some(key) = loader.cache.keys().next().cloned()
+            if let Some(artwork) = artwork.as_ref() {
+                if state.cache.len() >= CACHE_LIMIT
+                    && let Some(key) = state.cache.keys().next().cloned()
                 {
-                    loader.cache.remove(&key);
+                    state.cache.remove(&key);
                 }
-                loader.cache.insert(url.to_owned(), texture.clone());
+                state.cache.insert(url.to_owned(), artwork.clone());
             }
-            waiters
+            (waiters, tint_waiters)
         };
-        if let Some(texture) = texture {
+        if let Some(artwork) = artwork {
             for slot in waiters {
-                slot.apply(url, &texture);
+                slot.apply(url, &artwork.texture, artwork.tint);
+            }
+            if let Some(tint) = artwork.tint {
+                for callback in tint_waiters {
+                    callback(tint);
+                }
             }
         }
         Self::pump(loader);
@@ -353,6 +522,56 @@ fn append_bounded(body: &mut Vec<u8>, chunk: &[u8], limit: usize) -> bool {
     }
     body.extend_from_slice(chunk);
     true
+}
+
+mod square_cover {
+    use gtk4::subclass::prelude::*;
+    use gtk4::{glib, prelude::*};
+
+    #[derive(Default)]
+    pub struct SquareCover;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for SquareCover {
+        const NAME: &'static str = "EmberSquareCover";
+        type Type = super::SquareCover;
+        type ParentType = gtk4::Widget;
+    }
+    impl ObjectImpl for SquareCover {
+        fn dispose(&self) {
+            while let Some(child) = self.obj().first_child() {
+                child.unparent();
+            }
+        }
+    }
+    impl WidgetImpl for SquareCover {
+        fn request_mode(&self) -> gtk4::SizeRequestMode {
+            gtk4::SizeRequestMode::HeightForWidth
+        }
+        fn measure(&self, orientation: gtk4::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            if orientation == gtk4::Orientation::Vertical && for_size >= 0 {
+                (for_size, for_size, -1, -1)
+            } else {
+                (150, 150, -1, -1)
+            }
+        }
+        fn size_allocate(&self, width: i32, _height: i32, baseline: i32) {
+            if let Some(child) = self.obj().first_child() {
+                child.allocate(width, width, baseline, None);
+            }
+        }
+        fn snapshot(&self, snapshot: &gtk4::Snapshot) {
+            if let Some(child) = self.obj().first_child() {
+                self.obj().snapshot_child(&child, snapshot);
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct SquareCover(ObjectSubclass<square_cover::SquareCover>)
+        @extends gtk4::Widget,
+        @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
 }
 
 pub fn artwork_view(size: i32, glyph_size: i32) -> (gtk4::Overlay, gtk4::Picture) {
@@ -394,7 +613,23 @@ mod tests {
         ArtworkSlot {
             picture: glib::WeakRef::new(),
             desired: Rc::new(RefCell::new(String::new())),
+            on_tint: None,
         }
+    }
+
+    #[test]
+    fn a_slot_only_accepts_its_latest_url() {
+        let slot = ArtworkSlot::for_test("https://i.ytimg.com/a");
+        assert!(slot.accepts("https://i.ytimg.com/a"));
+        assert!(!slot.accepts("https://i.ytimg.com/b"));
+    }
+
+    #[test]
+    fn cancelled_tint_request_is_dropped() {
+        let mut loader = ArtworkLoader::default();
+        let token = loader.begin_tint("https://i.ytimg.com/a");
+        loader.cancel_tint_token(token);
+        assert_eq!(loader.pending_tint_waiters(), 0);
     }
 
     #[test]
@@ -409,6 +644,19 @@ mod tests {
         loader.prune();
         assert!(loader.pending.is_empty());
         assert!(loader.queue.is_empty());
+    }
+
+    #[test]
+    fn playlist_batches_do_not_discard_earlier_cover_requests() {
+        let mut loader = ArtworkLoader::default();
+        // Opening a playlist queues 100 rows; type-to-jump can queue all 5000.
+        for index in 0..5000 {
+            loader.enqueue(&format!("https://i.ytimg.com/vi/{index}/hqdefault.jpg"), empty_slot());
+        }
+        assert_eq!(loader.pending.len(), 5000);
+        assert_eq!(loader.queue.len(), 5000);
+        assert!(loader.pending.contains_key("https://i.ytimg.com/vi/0/hqdefault.jpg"));
+        assert!(loader.pending.contains_key("https://i.ytimg.com/vi/99/hqdefault.jpg"));
     }
 
     #[test]

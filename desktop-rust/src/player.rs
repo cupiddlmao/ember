@@ -2,6 +2,7 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::{cell::Cell, rc::Rc};
 
 static NEXT_PLAYER_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -26,6 +27,7 @@ pub struct PlayerEvent {
 /// ignored; only the playbin's own Playing state marks the stream ready.
 pub struct Player {
     id: u64,
+    buffering: Rc<Cell<bool>>,
     playbin: gst::Element,
     _bus_watch: gst::bus::BusWatchGuard,
 }
@@ -52,6 +54,8 @@ impl Player {
         let bus = playbin
             .bus()
             .ok_or_else(|| "GStreamer playback status is unavailable.".to_owned())?;
+        let buffering = Rc::new(Cell::new(false));
+        let bus_buffering = buffering.clone();
         let source = playbin.clone().upcast::<gst::Object>();
         let _bus_watch = bus
             .add_watch_local(move |_, message| {
@@ -61,6 +65,10 @@ impl Player {
                             && change.current() == gst::State::Playing =>
                     {
                         Some(PlayerEventKind::Playing)
+                    }
+                    gst::MessageView::Buffering(change) => {
+                        bus_buffering.set(change.percent() < 100);
+                        None
                     }
                     gst::MessageView::Eos(..) => Some(PlayerEventKind::Eos),
                     gst::MessageView::Error(_) => Some(PlayerEventKind::Error),
@@ -77,6 +85,7 @@ impl Player {
             .map_err(|_| "GStreamer playback status monitoring could not start.".to_owned())?;
         Ok(Self {
             id,
+            buffering,
             playbin,
             _bus_watch,
         })
@@ -124,6 +133,10 @@ impl Player {
             .map_err(|_| "Playback could not be stopped cleanly.".to_owned())
     }
 
+    pub fn actually_playing(&self) -> bool {
+        !self.buffering.get() && self.playbin.current_state() == gst::State::Playing
+    }
+
     pub fn position_ms(&self) -> Option<u64> {
         self.playbin
             .query_position::<gst::ClockTime>()
@@ -139,11 +152,11 @@ impl Player {
     pub fn seek_to_ms(&self, position_ms: u64) -> Result<(), String> {
         self.playbin
             .seek_simple(
-                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
                 gst::ClockTime::from_nseconds(position_ms.saturating_mul(1_000_000)),
             )
             .map(|_| ())
-            .map_err(|_| "This recording could not seek to that line.".to_owned())
+            .map_err(|_| "This recording could not seek to that timestamp.".to_owned())
     }
 }
 
@@ -156,6 +169,68 @@ impl Drop for Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gtk4::gio::prelude::FileExt;
+
+    #[test]
+    fn webm_audio_seeks_to_requested_time_without_resuming_paused_playback() {
+        let context = gst::glib::MainContext::new();
+        let _guard = context.acquire().expect("context");
+        context
+            .with_thread_default(|| {
+                gst::init().expect("GStreamer");
+                let temp = tempfile::tempdir().expect("tempdir");
+                let path = temp.path().join("seek.webm");
+                let encoded = std::process::Command::new("ffmpeg")
+                    .args([
+                        "-v",
+                        "error",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "sine=frequency=440:sample_rate=48000",
+                        "-t",
+                        "12",
+                        "-c:a",
+                        "libopus",
+                        "-y",
+                    ])
+                    .arg(&path)
+                    .status()
+                    .expect("ffmpeg fixture encoder");
+                assert!(encoded.success());
+                let (tx, _) = mpsc::channel();
+                let player = Player::new(tx).expect("player");
+                let sink = gst::ElementFactory::make("fakesink")
+                    .property("sync", true)
+                    .build()
+                    .expect("sink");
+                player.playbin.set_property("audio-sink", &sink);
+                player
+                    .playbin
+                    .set_property("uri", gtk4::gio::File::for_path(&path).uri().as_str());
+                player.pause().expect("preroll");
+                player
+                    .playbin
+                    .state(gst::ClockTime::from_seconds(5))
+                    .0
+                    .expect("ready");
+                for target in [5000_u64, 8000, 2000] {
+                    player.seek_to_ms(target).expect("seek");
+                    player
+                        .playbin
+                        .state(gst::ClockTime::from_seconds(5))
+                        .0
+                        .expect("seek complete");
+                    let actual = player.position_ms().expect("position");
+                    assert!(
+                        actual.abs_diff(target) <= 50,
+                        "seek target {target} landed at {actual}"
+                    );
+                    assert_eq!(player.playbin.current_state(), gst::State::Paused);
+                }
+            })
+            .expect("thread context");
+    }
 
     #[test]
     fn child_errors_reach_the_player_event_channel() {
