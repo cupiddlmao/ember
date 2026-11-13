@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var library: SharedLibraryModel
     @State private var showingAdd = false
     @State private var pendingRemoval: SavedPlaylist?
 
@@ -10,37 +11,40 @@ struct LibraryView: View {
             ZStack {
                 EmberTheme.backgroundGradient.ignoresSafeArea()
 
-                if model.savedPlaylists.isEmpty {
-                    emptyState
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(model.savedPlaylists) { playlist in
-                                NavigationLink {
-                                    PlaylistDetailView(playlist: playlist)
-                                } label: {
-                                    PlaylistRow(playlist: playlist)
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        pendingRemoval = playlist
-                                    } label: {
-                                        Label("Remove from Library", systemImage: "trash")
-                                    }
-                                }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        SharedLibrarySection()
+                        Divider().overlay(EmberTheme.hairline)
+                        HStack {
+                            Text("Saved YouTube links").font(.headline)
+                            Spacer()
+                            Button("Save link") { showingAdd = true }
+                        }
+                        Text("These bookmarks stay on this iPhone. Ember playlists above sync through your server.")
+                            .font(.caption).foregroundStyle(EmberTheme.secondaryText)
+                        ForEach(model.savedPlaylists) { playlist in
+                            NavigationLink {
+                                PlaylistDetailView(playlist: playlist)
+                            } label: {
+                                PlaylistRow(playlist: playlist)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Remove saved link", role: .destructive) { pendingRemoval = playlist }
                             }
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.top, 10)
-                        .padding(.bottom, 24)
                     }
+                    .foregroundStyle(.white)
+                    .padding(18)
                 }
+                .refreshable { await library.refresh() }
+
             }
             .navigationTitle("Library")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(EmberTheme.background, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -50,19 +54,6 @@ struct LibraryView: View {
                             .foregroundStyle(EmberTheme.secondaryText)
                     }
                     .accessibilityLabel("Settings")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingAdd = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(EmberTheme.accentGradient)
-                            .clipShape(Circle())
-                    }
-                    .accessibilityLabel("Add playlist")
                 }
             }
         }
@@ -91,30 +82,6 @@ struct LibraryView: View {
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 15) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(EmberTheme.pink.opacity(0.75))
-            Text("Build your library")
-                .font(.system(size: 21, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-            Text("Paste a public or unlisted YouTube Music playlist link to preview and save it here. No Google sign-in or account-library sync is required.")
-                .font(.system(size: 14))
-                .foregroundStyle(EmberTheme.secondaryText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 38)
-            Button {
-                showingAdd = true
-            } label: {
-                Label("Add a playlist", systemImage: "plus")
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .padding(.horizontal, 40)
-            .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
 private struct PlaylistRow: View {

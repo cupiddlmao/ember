@@ -8,12 +8,22 @@ struct ArtworkView: View {
     var body: some View {
         Group {
             if let url {
-                AsyncImage(url: url) { phase in
+                AsyncImage(url: ArtworkURL.display(url)) { phase in
                     switch phase {
                     case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
+                        cover(image)
+                    case .failure:
+                        if ArtworkURL.display(url) != ArtworkURL.display(url, fallback: true) {
+                            AsyncImage(url: ArtworkURL.display(url, fallback: true)) { fallbackPhase in
+                                if case .success(let image) = fallbackPhase {
+                                    cover(image)
+                                } else {
+                                    placeholder
+                                }
+                            }
+                        } else {
+                            placeholder
+                        }
                     default:
                         placeholder
                     }
@@ -28,6 +38,14 @@ struct ArtworkView: View {
             RoundedRectangle(cornerRadius: corner, style: .continuous)
                 .stroke(Color.white.opacity(0.07), lineWidth: 1)
         )
+    }
+
+    private func cover(_ image: Image) -> some View {
+        image
+            .resizable()
+            .scaledToFill()
+            .frame(width: size, height: size)
+            .clipped()
     }
 
     private var placeholder: some View {

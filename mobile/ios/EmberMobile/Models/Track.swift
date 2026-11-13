@@ -1,6 +1,6 @@
 import Foundation
 
-struct Track: Identifiable, Decodable, Equatable {
+struct Track: Identifiable, Codable, Equatable {
     let id: String
     let title: String
     let artist: String
@@ -14,6 +14,13 @@ struct Track: Identifiable, Decodable, Equatable {
 
     var durationText: String {
         Track.format(duration)
+    }
+
+    func matchesPlaylistSearch(_ query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return needle.isEmpty || [title, artist, album].contains {
+            $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
     }
 
     static func format(_ seconds: Double) -> String {
@@ -82,4 +89,90 @@ struct LyricsResponse: Decodable {
     let kind: String
     let lines: [LyricsLine]
     let message: String?
+}
+
+// Ember-owned playlists are separate from saved provider bookmarks.
+struct SharedPlaylistEntry: Codable, Identifiable, Equatable {
+    let id: String
+    let track: Track
+
+    init(track: Track) {
+        id = UUID().uuidString.lowercased()
+        self.track = track
+    }
+}
+
+struct SharedPlaylist: Codable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let revision: Int
+    let createdAt: String
+    let updatedAt: String
+    let trackCount: Int
+    let entries: [SharedPlaylistEntry]?
+}
+
+struct SharedPlaylistList: Decodable {
+    let playlists: [SharedPlaylist]
+}
+
+struct LibraryReceipt: Decodable {
+    let id: String
+    let revision: Int
+    let deleted: Bool
+}
+
+struct LibraryMutation: Codable {
+    enum Operation: String, Codable { case create, update, delete }
+    let operation: Operation
+    let playlistID: String
+    let body: Body
+
+    struct Body: Codable {
+        let requestId: String
+        let id: String?
+        let expectedRevision: Int?
+        let name: String?
+        let entries: [SharedPlaylistEntry]?
+    }
+
+    static func create(name: String, entries: [SharedPlaylistEntry] = []) -> Self {
+        let id = UUID().uuidString.lowercased()
+        return Self(operation: .create, playlistID: id,
+                    body: Body(requestId: UUID().uuidString.lowercased(), id: id,
+                               expectedRevision: nil, name: name, entries: entries))
+    }
+
+    static func update(_ playlist: SharedPlaylist, name: String, entries: [SharedPlaylistEntry]) -> Self {
+        Self(operation: .update, playlistID: playlist.id,
+             body: Body(requestId: UUID().uuidString.lowercased(), id: nil,
+                        expectedRevision: playlist.revision, name: name, entries: entries))
+    }
+
+    static func delete(_ playlist: SharedPlaylist) -> Self {
+        Self(operation: .delete, playlistID: playlist.id,
+             body: Body(requestId: UUID().uuidString.lowercased(), id: nil,
+                        expectedRevision: playlist.revision, name: nil, entries: nil))
+    }
+}
+
+// YouTube's 4:3 thumbnails include letterboxing; use widescreen frames before square cropping.
+enum ArtworkURL {
+    static func display(_ original: URL?, fallback: Bool = false) -> URL? {
+        guard let original,
+              original.scheme == "https",
+              let host = original.host,
+              ["i.ytimg.com", "img.youtube.com"].contains(host),
+              original.user == nil, original.password == nil, original.port == nil,
+              var parts = URLComponents(url: original, resolvingAgainstBaseURL: false)
+        else { return original }
+        let path = parts.path.split(separator: "/")
+        guard path.count == 3, path[0] == "vi",
+              path[1].count == 11,
+              path[1].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }),
+              ["default.jpg", "mqdefault.jpg", "hqdefault.jpg", "sddefault.jpg", "maxresdefault.jpg"].contains(String(path[2]))
+        else { return original }
+        parts.path = "/vi/\(path[1])/\(fallback ? "mqdefault.jpg" : "maxresdefault.jpg")"
+        return parts.url ?? original
+    }
 }

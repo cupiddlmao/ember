@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     @State private var scrubTime: Double = 0
     @State private var showingQueue = false
     @State private var lyricsTrack: Track?
+    @State private var addingTrack: Track?
 
     var body: some View {
         ZStack {
@@ -42,6 +43,7 @@ struct NowPlayingView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
+        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
         .sheet(isPresented: $showingQueue) {
             QueueView()
                 .environmentObject(model)
@@ -62,6 +64,30 @@ struct NowPlayingView: View {
                 .foregroundStyle(EmberTheme.faintText)
             Spacer()
             HStack(spacing: 8) {
+                Menu {
+                    if let track = model.queue.current?.track {
+                        Button { model.startSongRadio(track) } label: {
+                            Label(model.radioTrackID == track.id ? "Loading radio…" : "Song radio", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .disabled(model.radioTrackID == track.id)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 22))
+                        .frame(width: 34, height: 34)
+                        .foregroundStyle(EmberTheme.pink)
+                }
+                .accessibilityLabel("Song options")
+                .disabled(model.queue.current == nil)
+                Button { addingTrack = model.queue.current?.track } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 22))
+                        .frame(width: 34, height: 34)
+                        .foregroundStyle(EmberTheme.pink)
+                }
+                .accessibilityLabel("Add to playlist")
+                .disabled(model.queue.current == nil)
+
                 Button {
                     lyricsTrack = model.queue.current?.track
                 } label: {

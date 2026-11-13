@@ -28,6 +28,7 @@ final class PlayerController: NSObject, ObservableObject {
     var onResumeRequested: (() -> Bool)?
     var isPreparingPlayback: (() -> Bool)?
 
+    let lastFM = LastFMReporter()
     private let player = AVPlayer()
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
@@ -47,6 +48,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func play(track: Track, fileURL: URL) {
+        lastFM.begin()
         resumeAfterInterruption = false
         self.track = track
         errorMessage = nil
@@ -85,6 +87,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func pause() {
+        lastFM.breakContinuity()
         onPauseRequested?()
         playbackRequested = false
         resumeAfterInterruption = false
@@ -98,6 +101,7 @@ final class PlayerController: NSObject, ObservableObject {
         if onResumeRequested?() == true { return }
         guard player.currentItem != nil, state != .failed else { return }
         if state == .finished {
+            lastFM.begin()
             seek(to: 0)
         }
         guard activateAudioSession() else { return }
@@ -108,6 +112,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func seek(to seconds: Double) {
+        lastFM.breakContinuity()
         guard player.currentItem != nil else { return }
         let upperBound = duration > 0 ? duration : max(0, seconds)
         let bounded = max(0, min(upperBound, seconds))
@@ -128,6 +133,7 @@ final class PlayerController: NSObject, ObservableObject {
     }
 
     func stop() {
+        lastFM.breakContinuity()
         playbackRequested = false
         resumeAfterInterruption = false
         player.pause()
@@ -148,6 +154,7 @@ final class PlayerController: NSObject, ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, self.track != nil,
                       self.state != .failed, self.state != .finished else { return }
+                if self.player.timeControlStatus != .playing { self.lastFM.breakContinuity() }
                 switch self.player.timeControlStatus {
                 case .playing: self.state = .playing
                 case .waitingToPlayAtSpecifiedRate: self.state = .loading
@@ -221,6 +228,7 @@ final class PlayerController: NSObject, ObservableObject {
            itemDuration > 0 {
             duration = itemDuration
         }
+        lastFM.sample(track: track, position: currentTime, duration: duration, playing: state == .playing)
         updateNowPlayingElapsed()
     }
 

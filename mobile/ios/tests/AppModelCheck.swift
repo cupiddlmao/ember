@@ -3,6 +3,10 @@ import Foundation
 // Compile the real AppModel against deterministic network/audio doubles on macOS.
 @MainActor
 struct APIClient {
+    static var radioPending: [String: CheckedContinuation<[Track], Error>] = [:]
+    func radio(for track: Track) async throws -> [Track] {
+        try await withCheckedThrowingContinuation { Self.radioPending[track.id] = $0 }
+    }
     static var pending: [String: CheckedContinuation<URL, Error>] = [:]
     init(baseURL: URL, token: String) {}
     func health() async throws {}
@@ -41,7 +45,11 @@ enum KeychainStore {
 }
 
 @MainActor
+final class LastFMDouble { var client: (() -> APIClient?)? }
+
+@MainActor
 final class PlayerController {
+    let lastFM = LastFMDouble()
     enum PlaybackState { case idle, loading, playing, paused, failed }
     var state: PlaybackState = .idle
     var track: Track?
@@ -118,6 +126,34 @@ struct AppModelCheck {
         await waitUntil { model.player.played.last == b.id }
         assert(model.currentQueueEntry?.track == b)
         model.disconnect()
-        print("AppModel cancellation, retry and queue recovery checks passed")
+        let radioModel = AppModel()
+        radioModel.serverURL = "https://example.invalid/ember"
+        radioModel.accessKey = "test-only"
+        await radioModel.connect()
+        radioModel.startSongRadio(a)
+        await waitUntil { APIClient.radioPending[a.id] != nil }
+        APIClient.radioPending.removeValue(forKey: a.id)!.resume(returning: [a, b, b])
+        await waitUntil { APIClient.pending[a.id] != nil }
+        assert(radioModel.currentQueueEntry?.track == a && radioModel.queue.upcoming.count == 1)
+        radioModel.disconnect()
+        APIClient.pending.removeValue(forKey: a.id)!.resume(returning: file)
+        for _ in 0..<100 { await Task.yield() }
+        await radioModel.connect()
+        radioModel.startSongRadio(a)
+        await waitUntil { APIClient.radioPending[a.id] != nil }
+        radioModel.play(b)
+        await waitUntil { APIClient.pending[b.id] != nil }
+        APIClient.radioPending.removeValue(forKey: a.id)!.resume(returning: [b])
+        for _ in 0..<100 { await Task.yield() }
+        assert(radioModel.currentQueueEntry?.track == b, "late radio response replaced newer playback")
+        radioModel.startSongRadio(a)
+        await waitUntil { APIClient.radioPending[a.id] != nil }
+        APIClient.radioPending.removeValue(forKey: a.id)!.resume(returning: [])
+        await waitUntil { radioModel.radioTrackID == nil }
+        assert(radioModel.currentQueueEntry?.track == b && radioModel.errorMessage != nil)
+        radioModel.disconnect()
+        APIClient.pending.removeValue(forKey: b.id)!.resume(returning: file)
+        for _ in 0..<100 { await Task.yield() }
+        print("AppModel cancellation, radio, retry and queue recovery checks passed")
     }
 }

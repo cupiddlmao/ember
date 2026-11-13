@@ -31,11 +31,12 @@ enum APIError: LocalizedError {
 
 @MainActor
 struct APIClient {
+    let identity = UUID()
     let baseURL: URL
     private let token: String
     private let session: URLSession
 
-    init(baseURL: URL, token: String) {
+    init(baseURL: URL, token: String, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.token = token
         let configuration = URLSessionConfiguration.ephemeral
@@ -45,7 +46,32 @@ struct APIClient {
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
         configuration.waitsForConnectivity = false
-        self.session = URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration)
+    }
+
+    func lastFM(_ body: [String: Any]) async throws -> [String: Any] {
+        var request = URLRequest(url: endpoint("v1", "lastfm"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = (body["action"] as? String) == "radio" ? 45 : 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        authorize(&request)
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        guard data.count <= 65536,
+              let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw APIError.invalidResponse
+        }
+        return result
+    }
+
+    func radio(for track: Track) async throws -> [Track] {
+        let result = try await lastFM(["action": "radio", "title": track.title, "artist": track.artist])
+        let data = try JSONSerialization.data(withJSONObject: result)
+        guard let response = try? JSONDecoder().decode(SearchResponse.self, from: data), response.tracks.count <= 12 else {
+            throw APIError.invalidResponse
+        }
+        return response.tracks
     }
 
     func health() async throws {
@@ -196,6 +222,47 @@ struct APIClient {
         request.timeoutInterval = 90
         authorize(&request)
         return try await decode(PlaylistPage.self, from: request)
+    }
+
+    func libraryPlaylists() async throws -> [SharedPlaylist] {
+        var request = URLRequest(url: endpoint("v1", "library", "playlists"))
+        authorize(&request)
+        return try await decode(SharedPlaylistList.self, from: request).playlists
+    }
+
+    func libraryPlaylist(id: String) async throws -> SharedPlaylist {
+        var request = URLRequest(url: endpoint("v1", "library", "playlists", id))
+        authorize(&request)
+        let playlist = try await decode(SharedPlaylist.self, from: request)
+        guard playlist.id == id, let entries = playlist.entries, entries.count <= 5000,
+              Set(entries.map(\.id)).count == entries.count else { throw APIError.invalidResponse }
+        return playlist
+    }
+
+    func mutateLibrary(_ mutation: LibraryMutation) async throws -> LibraryReceipt {
+        let url = mutation.operation == .create
+            ? endpoint("v1", "library", "playlists")
+            : endpoint("v1", "library", "playlists", mutation.playlistID)
+        var request = URLRequest(url: url)
+        switch mutation.operation {
+        case .create: request.httpMethod = "POST"
+        case .update: request.httpMethod = "PUT"
+        case .delete: request.httpMethod = "DELETE"
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        request.httpBody = try encoder.encode(mutation.body)
+        guard let size = request.httpBody?.count, size <= 8 * 1024 * 1024 else {
+            throw APIError.invalidConfiguration("This playlist is too large to save.")
+        }
+        request.setValue(String(size), forHTTPHeaderField: "Content-Length")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorize(&request)
+        let receipt = try await decode(LibraryReceipt.self, from: request)
+        guard receipt.id == mutation.playlistID,
+              receipt.revision == (mutation.body.expectedRevision ?? 0) + 1,
+              receipt.deleted == (mutation.operation == .delete) else { throw APIError.invalidResponse }
+        return receipt
     }
 
     func lyrics(for track: Track) async throws -> LyricsResponse {
