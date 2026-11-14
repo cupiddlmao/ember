@@ -53,7 +53,7 @@ struct SharedLibrarySection: View {
                         Image(systemName: "music.note.list").foregroundStyle(EmberTheme.pink)
                         VStack(alignment: .leading) {
                             Text(playlist.name).font(.headline)
-                            Text("\(playlist.trackCount) songs").font(.caption)
+                            Text("\(playlist.trackCount) song\(playlist.trackCount == 1 ? "" : "s")").font(.caption)
                                 .foregroundStyle(EmberTheme.secondaryText)
                         }
                         Spacer()
@@ -249,6 +249,7 @@ struct SharedPlaylistDetailView: View {
                 .accessibilityLabel("Playlist actions")
             }
         }
+        .toolbar(.visible, for: .tabBar)
         .task { _ = await library.load(playlistID) }
         .refreshable { await library.load(playlistID); await library.refresh() }
         .onChange(of: scenePhase) { _, phase in

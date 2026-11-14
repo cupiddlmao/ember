@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var confirmingDisconnect = false
     @State private var lastFMStatus = "Connect once for both desktop and iPhone."
     @State private var lastFMBusy = false
+    @State private var lastFMConnected = false
+    @State private var lastFMAuthorizing = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -26,12 +28,18 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("LAST.FM").font(.caption.bold())
                             Text(lastFMStatus).font(.caption)
-                            Button("Connect Last.fm") { lastFMAction("connect") }
-                            Button("Finish browser authorization") { lastFMAction("finish") }
-                            Button("Disconnect Last.fm", role: .destructive) { lastFMAction("disconnect") }
+                            if lastFMConnected {
+                                Button("Disconnect Last.fm", role: .destructive) { lastFMAction("disconnect") }
+                            } else {
+                                Button("Connect Last.fm") { lastFMAction("connect") }
+                                if lastFMAuthorizing {
+                                    Button("Finish browser authorization") { lastFMAction("finish") }
+                                }
+                            }
                         }
                         .disabled(lastFMBusy)
                         .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .emberCard()
 
                         infoCard(
@@ -121,16 +129,23 @@ struct SettingsView: View {
                 let result = try await api.lastFM(["action": action])
                 if let raw = result["url"] as? String, let url = URL(string: raw),
                    url.scheme == "https", url.host == "www.last.fm" {
+                    lastFMAuthorizing = true
+                    lastFMConnected = false
                     openURL(url)
                     lastFMStatus = "Approve in your browser, then tap Finish browser authorization."
                 } else {
                     let status = try await api.lastFM(["action": "status"])
-                    if status["connected"] as? Bool == true {
+                    lastFMConnected = status["connected"] as? Bool == true
+                    if lastFMConnected {
+                        lastFMAuthorizing = false
                         lastFMStatus = "Connected as \(status["username"] as? String ?? "") · \(status["pending"] as? Int ?? 0) pending"
-                    } else if status["configured"] as? Bool == true {
-                        lastFMStatus = "Not connected."
                     } else {
-                        lastFMStatus = "Set LASTFM_API_KEY and LASTFM_API_SECRET on the server first."
+                        if action == "disconnect" { lastFMAuthorizing = false }
+                        if status["configured"] as? Bool == true {
+                            lastFMStatus = "Not connected."
+                        } else {
+                            lastFMStatus = "Set LASTFM_API_KEY and LASTFM_API_SECRET on the server first."
+                        }
                     }
                 }
             } catch { lastFMStatus = error.localizedDescription }

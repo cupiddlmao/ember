@@ -67,7 +67,7 @@ final class AppModel: ObservableObject {
             guard let self, let entry = self.queue.current else { return false }
             if self.preparingEntryID != nil { return true }
             guard self.playingEntryID != entry.id || self.player.state == .failed else { return false }
-            self.beginPlayback(entry, presentPlayer: false)
+            self.beginPlayback(entry)
             return true
         }
     }
@@ -223,13 +223,13 @@ final class AppModel: ObservableObject {
     func play(_ track: Track) {
         guard client != nil else { return }
         let entry = queue.start(track: track)
-        beginPlayback(entry, presentPlayer: true)
+        beginPlayback(entry)
     }
 
     func play(tracks: [Track], startingAt index: Int) {
         guard client != nil, !tracks.isEmpty else { return }
         guard let entry = queue.replace(tracks: tracks, startingAt: index) else { return }
-        beginPlayback(entry, presentPlayer: true)
+        beginPlayback(entry)
     }
 
     func playAll(_ tracks: [Track]) {
@@ -245,7 +245,7 @@ final class AppModel: ObservableObject {
         let wasIdle = queue.currentID == nil
         let entry = queue.playNext(track)
         if wasIdle {
-            beginPlayback(entry, presentPlayer: true)
+            beginPlayback(entry)
         } else {
             restartPrefetch()
         }
@@ -256,7 +256,7 @@ final class AppModel: ObservableObject {
         let wasIdle = queue.currentID == nil
         let entry = queue.append(track)
         if wasIdle {
-            beginPlayback(entry, presentPlayer: true)
+            beginPlayback(entry)
         } else {
             restartPrefetch()
         }
@@ -264,12 +264,12 @@ final class AppModel: ObservableObject {
 
     func playQueueEntry(_ entry: QueueEntry) {
         guard client != nil, let selected = queue.select(id: entry.id) else { return }
-        beginPlayback(selected, presentPlayer: true)
+        beginPlayback(selected)
     }
 
     func playNextTrack() {
         guard let entry = queue.advanceAfterEnd() else { return }
-        beginPlayback(entry, presentPlayer: false)
+        beginPlayback(entry)
     }
 
     func playPreviousTrack() {
@@ -281,7 +281,7 @@ final class AppModel: ObservableObject {
             player.seek(to: 0)
             return
         }
-        beginPlayback(entry, presentPlayer: false)
+        beginPlayback(entry)
     }
 
     func removeUpcoming(_ entry: QueueEntry) {
@@ -357,7 +357,7 @@ final class AppModel: ObservableObject {
         errorMessage = nil
     }
 
-    private func beginPlayback(_ entry: QueueEntry, presentPlayer: Bool) {
+    private func beginPlayback(_ entry: QueueEntry) {
         cancelRadio()
         guard let api = client else { return }
         player.pause()
@@ -388,9 +388,6 @@ final class AppModel: ObservableObject {
                 self.preparingEntryID = nil
                 self.playingEntryID = entry.id
                 self.player.play(track: entry.track, fileURL: fileURL)
-                if presentPlayer {
-                    self.activeSheet = .nowPlaying
-                }
                 self.startPrefetch()
             } catch {
                 guard !Task.isCancelled,
@@ -425,7 +422,7 @@ final class AppModel: ObservableObject {
         guard let entry = queue.advanceAfterEnd() else {
             return
         }
-        beginPlayback(entry, presentPlayer: false)
+        beginPlayback(entry)
     }
 
     private func handlePlaybackFailure(_ message: String) {

@@ -60,6 +60,34 @@ private struct SignedInView: View {
     @State private var selectedTab = 0
 
     var body: some View {
+        tabContent
+            .animation(.easeInOut(duration: 0.22), value: model.player.track?.id)
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        if #available(iOS 26.1, *) {
+            tabs
+                .tabViewBottomAccessory(isEnabled: model.queue.current != nil) {
+                    MiniPlayerBar(player: model.player)
+                }
+        } else if #available(iOS 26.0, *) {
+            tabs
+                .tabViewBottomAccessory {
+                    MiniPlayerBar(player: model.player)
+                }
+        } else {
+            tabs
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if model.queue.current != nil {
+                        MiniPlayerBar(player: model.player)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $selectedTab) {
             SearchView()
                 .tabItem {
@@ -76,13 +104,6 @@ private struct SignedInView: View {
         .tint(EmberTheme.pink)
         .toolbarBackground(EmberTheme.background, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if model.queue.current != nil {
-                MiniPlayerBar(player: model.player)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.22), value: model.player.track?.id)
     }
 }
 

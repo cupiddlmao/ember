@@ -69,6 +69,7 @@ struct PlaylistDetailView: View {
                 .accessibilityLabel("Playlist actions")
             }
         }
+        .toolbar(.visible, for: .tabBar)
         .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
         .task { await loadAll() }
     }
