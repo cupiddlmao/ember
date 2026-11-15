@@ -145,7 +145,7 @@ struct SettingsView: View {
                     lastFMConnected = status["connected"] as? Bool == true
                     lastFMConfigured = status["configured"] as? Bool == true
                     if lastFMConnected {
-                        model.lastFMConnected()
+                        model.lastFMConnected(reconnected: action == "finish")
                         lastFMStatus = "Connected as \(status["username"] as? String ?? "") · \(status["pending"] as? Int ?? 0) pending"
                     } else if lastFMConfigured {
                         if action == "disconnect" { model.lastFMDisconnected() }

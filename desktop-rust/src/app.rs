@@ -2015,7 +2015,9 @@ impl AppUi {
             self.refresh_lastfm_label();
             return;
         };
-        let track = self.queue.current().map(|entry| entry.track.clone());
+        let entry = self.queue.current();
+        let track = entry.map(|entry| entry.track.clone());
+        let entry_id = entry.map(|entry| entry.id);
         let position = self
             .player
             .as_ref()
@@ -2029,6 +2031,7 @@ impl AppUi {
             .unwrap_or(0);
         self.lastfm.sample(
             track.as_ref(),
+            entry_id,
             position,
             duration,
             self.playback.is_playing(),
@@ -2048,14 +2051,18 @@ impl AppUi {
             self.lastfm_label.remove_css_class("error");
         }
         let connected = self.lastfm.connected();
-        self.lastfm_connect.set_visible(!connected);
-        self.lastfm_finish
-            .set_visible(!connected && self.lastfm.configured());
-        self.lastfm_disconnect.set_visible(connected);
         let sensitive = !self.lastfm.busy();
-        self.lastfm_connect.set_sensitive(sensitive);
-        self.lastfm_finish.set_sensitive(sensitive);
-        self.lastfm_disconnect.set_sensitive(sensitive);
+        let update = |button: &gtk4::Button, visible: bool| {
+            if button.is_visible() != visible {
+                button.set_visible(visible);
+            }
+            if button.is_sensitive() != sensitive {
+                button.set_sensitive(sensitive);
+            }
+        };
+        update(&self.lastfm_connect, !connected);
+        update(&self.lastfm_finish, !connected && self.lastfm.configured());
+        update(&self.lastfm_disconnect, connected);
     }
 
     fn seek_to_progress(&mut self, fraction: f64) {
