@@ -52,6 +52,44 @@ class LastFMTests(unittest.TestCase):
         self.service.handle({"action": "disconnect"})
         self.assertFalse(self.service.handle({"action": "status"})["connected"])
 
+    def test_status_clears_a_revoked_session(self):
+        from io import BytesIO
+        from urllib.parse import parse_qs
+        def upstream(request, timeout):
+            method = parse_qs(request.data.decode())["method"][0]
+            payloads = {
+                "auth.getToken": {"token": "test-token"},
+                "auth.getSession": {"session": {"key": "test-session", "name": "test-user"}},
+                "user.getInfo": {"error": 9},
+            }
+            return BytesIO(json.dumps(payloads[method]).encode())
+        with patch("mobile.backend.lastfm_service.urlopen", upstream), patch.object(threading.Thread, "start"):
+            service = LastFM(self.settings)
+            service.handle({"action": "connect"})
+            service.handle({"action": "finish"})
+            status = service.handle({"action": "status"})
+        self.assertFalse(status["connected"])
+        self.assertEqual(status["username"], "test-user")
+
+    def test_status_keeps_a_session_when_validation_is_transient(self):
+        from io import BytesIO
+        from urllib.parse import parse_qs
+        def upstream(request, timeout):
+            method = parse_qs(request.data.decode())["method"][0]
+            if method == "user.getInfo":
+                raise OSError("offline")
+            payloads = {
+                "auth.getToken": {"token": "test-token"},
+                "auth.getSession": {"session": {"key": "test-session", "name": "test-user"}},
+            }
+            return BytesIO(json.dumps(payloads[method]).encode())
+        with patch("mobile.backend.lastfm_service.urlopen", upstream), patch.object(threading.Thread, "start"):
+            service = LastFM(self.settings)
+            service.handle({"action": "connect"})
+            service.handle({"action": "finish"})
+            status = service.handle({"action": "status"})
+        self.assertTrue(status["connected"])
+
     def test_threshold_short_tracks_and_bad_metadata(self):
         self.connect()
         for changes in ({"listened":89}, {"duration":30}, {"listened":float("nan")}, {"started":0}, {"artist":""}, {"id":"invalid"}):
@@ -77,7 +115,8 @@ class LastFMTests(unittest.TestCase):
         restored.flush()
         self.assertEqual(restored.handle({"action":"status"})["pending"], 0)
         self.assertEqual(sum(m == "track.scrobble" for m, _ in self.calls), 1)
-        self.assertEqual(self.calls[-1][1]["timestamp"], event["started"])
+        scrobble = next(params for method, params in reversed(self.calls) if method == "track.scrobble")
+        self.assertEqual(scrobble["timestamp"], event["started"])
 
     def test_disconnected_rejects_listens_and_clears_queue(self):
         with self.assertRaises(LibraryError): self.service.handle(self.event())

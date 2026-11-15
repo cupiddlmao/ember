@@ -19,7 +19,8 @@ the desktop migration:
 
 This is the Ember desktop app. It uses the checkout's Python music core through
 a bounded bridge for public YouTube Music search and resolution, and the Ember
-backend for shared playlists. Radio and account sync are not implemented.
+backend for shared playlists and Last.fm scrobbling. Radio and account sync are
+not implemented.
 
 ## Requirements
 
@@ -211,8 +212,9 @@ audio behavior.
 Playlist sync, a playlist sidebar, radio, downloads, shuffle/repeat, local
 filesystem scanning, session persistence and account sync remain out of scope.
 There is no disk artwork cache, so covers require network access on a new run.
-The Rust client is the only desktop surface; radio, Last.fm and account sync are
-not implemented.
+The Rust client is the only desktop surface; radio and account sync are not
+implemented. Last.fm listens are queued locally and retried after the shared
+backend reports a temporary disconnect.
 
 Home artwork uses a native height-for-width widget so covers fill the card and
 remain square through initial display and resizing. The display-only regression

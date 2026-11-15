@@ -45,7 +45,12 @@ enum KeychainStore {
 }
 
 @MainActor
-final class LastFMDouble { var client: (() -> APIClient?)? }
+final class LastFMDouble {
+    var client: (() -> APIClient?)?
+    var onReauthRequired: ((Bool) -> Void)?
+    func refreshStatusSoon() {}
+    func discardPending() {}
+}
 
 @MainActor
 final class PlayerController {

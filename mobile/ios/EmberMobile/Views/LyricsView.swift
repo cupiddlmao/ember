@@ -264,7 +264,7 @@ struct LyricsView: View {
             session.lyrics = result
             session.isLoading = false
             session.sync(time: player.currentTime)
-        } catch APIError.server(404, _) {
+        } catch APIError.server(404, _, _) {
             guard !Task.isCancelled, session.track.id == requested.id else { return }
             session.errorMessage = "This server does not have the lyrics endpoint. Update the Ember backend to version 0.2.0 or later."
             session.isLoading = false

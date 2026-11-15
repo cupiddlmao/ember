@@ -1,6 +1,7 @@
 use crate::artwork::{ArtworkLoader, ArtworkSlot, artwork_view};
 use crate::bridge::{BridgePayload, BridgeService, JobKind, JobResult, normalize_query};
 use crate::config::BridgeConfig;
+use crate::lastfm::LastFmReporter;
 use crate::lyrics::{LyricsData, LyricsKind};
 use crate::model::{ResolveData, Track};
 use crate::playback::{PauseAction, PlayAction, PlaybackState, ResolveDisposition};
@@ -99,6 +100,8 @@ fn activate(application: &gtk4::Application) {
 
     let sidebar = build_sidebar();
     let settings = build_settings_window(&window);
+    let lastfm = LastFmReporter::load();
+    let lastfm_label = settings.7.clone();
     let settings_window = settings.0.clone();
     sidebar.settings_button.connect_clicked(move |_| {
         settings_window.present();
@@ -233,6 +236,8 @@ fn activate(application: &gtk4::Application) {
         nav_search: sidebar.search_button_nav,
         nav_queue: sidebar.queue_button,
         queue_nav_count: sidebar.queue_count,
+        lastfm,
+        lastfm_label,
         home_stack: home.stack,
         home_search_button: home.search_button,
         recent_flow: home.recent_flow,
@@ -384,6 +389,7 @@ fn build_settings_window(
     gtk4::PasswordEntry,
     gtk4::Button,
     gtk4::Label,
+    gtk4::Label,
 ) {
     let window = gtk4::Window::builder()
         .title("Ember Settings")
@@ -430,6 +436,11 @@ fn build_settings_window(
     feedback.set_wrap(true);
     feedback.set_max_width_chars(45);
     content.append(&feedback);
+    content.append(&label("Last.fm", "section-title"));
+    let lastfm_status = label("Checking Last.fm…", "secondary");
+    lastfm_status.set_wrap(true);
+    lastfm_status.set_max_width_chars(45);
+    content.append(&lastfm_status);
     let close = gtk4::Button::with_label("Done");
     let weak_window = window.downgrade();
     close.connect_clicked(move |_| {
@@ -439,7 +450,16 @@ fn build_settings_window(
     });
     content.append(&close);
     window.set_child(Some(&content));
-    (window, enabled, clear, server, key, save, feedback)
+    (
+        window,
+        enabled,
+        clear,
+        server,
+        key,
+        save,
+        feedback,
+        lastfm_status,
+    )
 }
 
 struct SidebarParts {
@@ -1082,6 +1102,8 @@ struct AppUi {
     nav_search: gtk4::Button,
     nav_queue: gtk4::Button,
     queue_nav_count: gtk4::Label,
+    lastfm: LastFmReporter,
+    lastfm_label: gtk4::Label,
     home_stack: gtk4::Stack,
     home_search_button: gtk4::Button,
     recent_flow: gtk4::FlowBox,
@@ -1222,6 +1244,10 @@ impl AppUi {
                 Ok(_) => self.lyrics_failed("The lyrics bridge returned the wrong result type."),
                 Err(error) => self.lyrics_failed(error.message()),
             },
+            JobKind::LastFm => {
+                self.lastfm.handle_result(job);
+                self.refresh_lastfm_label();
+            }
             JobKind::Cache => {
                 match job.result {
                     Ok(BridgePayload::Cache { cleared: true }) => self.set_status("Audio cache cleared.", false),
@@ -1943,6 +1969,44 @@ impl AppUi {
 
     fn tick_progress(&self) {
         self.refresh_progress();
+    }
+
+    fn tick_lastfm(&mut self) {
+        if self.closing {
+            return;
+        }
+        let Some(bridge) = self.bridge.as_ref() else {
+            return;
+        };
+        let track = self.queue.current().map(|entry| entry.track.clone());
+        let position = self
+            .player
+            .as_ref()
+            .and_then(Player::position_ms)
+            .unwrap_or(0);
+        let duration = self
+            .player
+            .as_ref()
+            .and_then(Player::duration_ms)
+            .or_else(|| track.as_ref().map(|track| track.duration_ms))
+            .unwrap_or(0);
+        self.lastfm.sample(
+            track.as_ref(),
+            position,
+            duration,
+            self.playback.is_playing(),
+            bridge,
+        );
+        self.refresh_lastfm_label();
+    }
+
+    fn refresh_lastfm_label(&self) {
+        self.lastfm_label.set_text(&self.lastfm.status_text());
+        if self.lastfm.status_text().starts_with("Last.fm needs") {
+            self.lastfm_label.add_css_class("error");
+        } else {
+            self.lastfm_label.remove_css_class("error");
+        }
     }
 
     fn seek_to_progress(&mut self, fraction: f64) {
@@ -2755,6 +2819,7 @@ fn install_callbacks(
         }
         app.borrow_mut().tick_lyrics();
         app.borrow_mut().tick_progress();
+        app.borrow_mut().tick_lastfm();
         if app.borrow().closing {
             glib::ControlFlow::Break
         } else {

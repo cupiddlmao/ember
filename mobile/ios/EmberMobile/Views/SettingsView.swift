@@ -29,6 +29,11 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("LAST.FM").font(.caption.bold())
                             Text(lastFMStatus).font(.caption)
+                            if model.lastFMNeedsReauth {
+                                Text("Last.fm needs reauthorization. Reconnect to send the listens saved on this iPhone.")
+                                    .font(.caption)
+                                    .foregroundStyle(EmberTheme.pinkSoft)
+                            }
                             if lastFMConnected {
                                 Button("Disconnect Last.fm", role: .destructive) { lastFMAction("disconnect") }
                             } else {
@@ -140,8 +145,10 @@ struct SettingsView: View {
                     lastFMConnected = status["connected"] as? Bool == true
                     lastFMConfigured = status["configured"] as? Bool == true
                     if lastFMConnected {
+                        model.lastFMConnected()
                         lastFMStatus = "Connected as \(status["username"] as? String ?? "") · \(status["pending"] as? Int ?? 0) pending"
                     } else if lastFMConfigured {
+                        if action == "disconnect" { model.lastFMDisconnected() }
                         lastFMStatus = "Not connected."
                     } else {
                         lastFMStatus = "Set LASTFM_API_KEY and LASTFM_API_SECRET on the server first."
