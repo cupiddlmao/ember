@@ -25,6 +25,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var queue = PlaybackQueue()
     @Published private(set) var savedPlaylists: [SavedPlaylist] = []
     @Published var activeSheet: Sheet?
+    @Published private(set) var lastFMNeedsReauth = false
 
     let player = PlayerController()
 
@@ -45,6 +46,9 @@ final class AppModel: ObservableObject {
         accessKey = ""
         savedPlaylists = PlaylistStore.load()
         player.lastFM.client = { [weak self] in self?.client }
+        player.lastFM.onReauthRequired = { [weak self] needed in
+            self?.lastFMNeedsReauth = needed
+        }
         player.onTrackEnded = { [weak self] in
             self?.advanceQueueAfterEnd()
         }
@@ -158,8 +162,19 @@ final class AppModel: ObservableObject {
         isSearching = false
         errorMessage = nil
         connectionError = nil
+        lastFMNeedsReauth = false
         KeychainStore.delete()
         accessKey = ""
+    }
+
+    func lastFMConnected() {
+        lastFMNeedsReauth = false
+        player.lastFM.refreshStatusSoon()
+    }
+
+    func lastFMDisconnected() {
+        lastFMNeedsReauth = false
+        player.lastFM.discardPending()
     }
 
     func scheduleSearch() {

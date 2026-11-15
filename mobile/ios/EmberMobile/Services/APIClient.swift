@@ -3,7 +3,7 @@ import Foundation
 enum APIError: LocalizedError {
     case invalidConfiguration(String)
     case unauthorized
-    case server(Int, String?)
+    case server(Int, String?, String?)
     case transport(String)
     case invalidResponse
     case fileTooLarge
@@ -14,7 +14,7 @@ enum APIError: LocalizedError {
             return message
         case .unauthorized:
             return "The server rejected the access key."
-        case .server(let status, let message):
+        case .server(let status, let message, _):
             if let message, !message.isEmpty {
                 return message
             }
@@ -350,9 +350,9 @@ struct APIClient {
         if let data,
            let body = try? JSONDecoder().decode(APIErrorBody.self, from: data),
            !body.error.message.isEmpty {
-            return .server(status, body.error.message)
+            return .server(status, body.error.message, body.error.code)
         }
-        return .server(status, nil)
+        return .server(status, nil, nil)
     }
 
     private func message(for error: URLError) -> String {

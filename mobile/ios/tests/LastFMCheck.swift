@@ -198,12 +198,49 @@ struct LastFMCheck {
         await attemptSend(third, scrobbles: 3)
         assert(pendingCount() == 0, "a 400 must drop the rejected event")
 
+        // A 409 event_conflict is permanent: the backend already has this event.
+        try writeOutbox(server: base.absoluteString, pending: [event("four")])
+        queueStatus()
+        script.enqueue(status: 409, ["error": ["code": "event_conflict", "message": "conflict"]])
+        let fourth = makeReporter()
+        await prime(fourth, statuses: 4)
+        await attemptSend(fourth, scrobbles: 4)
+        assert(pendingCount() == 0, "a 409 event conflict must drop the rejected event")
+
+        // A 409 lastfm_disconnected is temporary: keep the event and ask for reauth.
+        try writeOutbox(server: base.absoluteString, pending: [event("five")])
+        queueStatus()
+        script.enqueue(status: 409, ["error": ["code": "lastfm_disconnected", "message": "Connect"]])
+        let fifth = makeReporter()
+        var reauth = false
+        fifth.onReauthRequired = { reauth = $0 }
+        await prime(fifth, statuses: 5)
+        await attemptSend(fifth, scrobbles: 5)
+        assert(pendingCount() == 1, "a disconnected 409 must retain the outbox")
+        assert(reauth, "a disconnected 409 must surface reauth")
+
+        // A status of disconnected keeps unsent listens across session expiry.
+        try writeOutbox(server: base.absoluteString, pending: [event("six")])
+        script.enqueue(status: 200, ["connected": false, "configured": true,
+                                     "username": "tester", "pending": 0])
+        let sixth = makeReporter()
+        await prime(sixth, statuses: 6)
+        assert(pendingCount() == 1, "a disconnected status must retain unsent listens")
+
+        // Once the account is reauthorized, the preserved listen resumes.
+        queueStatus()
+        script.enqueue(status: 200, [:])
+        let seventh = makeReporter()
+        await prime(seventh, statuses: 7)
+        await attemptSend(seventh, scrobbles: 6)
+        assert(pendingCount() == 0, "a preserved listen must send after reauthorization")
+
         // Another server's outbox must never be replayed into this account.
         try writeOutbox(server: "https://old.invalid/ember", pending: [event("three")])
         queueStatus()
         let scrobblesBefore = script.count("scrobble")
         let switched = makeReporter()
-        await prime(switched, statuses: 4)
+        await prime(switched, statuses: 8)
         await drain()
         assert(outboxValue()["server"] as? String == base.absoluteString,
                "the outbox must follow the current server")
@@ -211,6 +248,6 @@ struct LastFMCheck {
         assert(script.count("scrobble") == scrobblesBefore,
                "another server's event must not be sent")
 
-        print("Last.fm outbox retry, 400 drop and server-switch checks passed")
+        print("Last.fm outbox retry, 400/409 handling, reauth persistence and server-switch checks passed")
     }
 }

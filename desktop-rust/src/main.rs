@@ -4,6 +4,7 @@ mod bridge;
 mod cache;
 mod config;
 mod icons;
+mod lastfm;
 mod library;
 mod lyrics;
 mod model;

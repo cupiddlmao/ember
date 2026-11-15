@@ -22,6 +22,7 @@ struct ListeningClock {
 @MainActor
 final class LastFMReporter {
     var client: (() -> APIClient?)?
+    var onReauthRequired: ((Bool) -> Void)?
     private var clock = ListeningClock()
     private var playbackID = UUID().uuidString
     private var started = 0
@@ -77,6 +78,7 @@ final class LastFMReporter {
             connected = false
             lastStatus = -.infinity
             clock = ListeningClock()
+            onReauthRequired?(false)
             save()
         }
         if !busy, now - lastStatus >= 60 {
@@ -87,14 +89,23 @@ final class LastFMReporter {
                 guard let self else { return }
                 defer { self.busy = false }
                 if let result = try? await api.lastFM(["action": "status"]), self.server == targetServer {
-                    self.connected = result["connected"] as? Bool == true
+                    let connected = result["connected"] as? Bool == true
+                    let configured = result["configured"] as? Bool == true
                     let account = result["username"] as? String ?? ""
-                    if !self.connected || (!self.account.isEmpty && self.account != account) {
+                    let wasConnected = self.connected
+                    // A session can expire while unsent listens are queued. Keep them
+                    // until the user reauthorizes, unless the account really changed.
+                    if !self.account.isEmpty, !account.isEmpty, self.account != account {
                         self.pending.removeAll()
                         self.clock = ListeningClock()
-                        self.save()
                     }
+                    self.connected = connected
                     self.account = account
+                    if connected || !configured {
+                        self.onReauthRequired?(false)
+                    } else if wasConnected {
+                        self.onReauthRequired?(true)
+                    }
                     self.save()
                 }
             }
@@ -131,15 +142,29 @@ final class LastFMReporter {
                 do {
                     _ = try await api.lastFM(event)
                     self.completeFirst(event, server: targetServer)
-                } catch APIError.server(let status, _) where status == 400 {
-                    // Expired or permanently invalid events must not block later listens.
+                } catch APIError.server(400, _, _) {
+                    // Expired or permanently invalid events are permanent failures.
                     self.completeFirst(event, server: targetServer)
+                } catch APIError.server(409, _, let code) where code == "event_conflict" {
+                    // The backend already has this exact event; retrying can never succeed.
+                    self.completeFirst(event, server: targetServer)
+                } catch APIError.server(409, _, let code) where code == "lastfm_disconnected" {
+                    // Temporary: the listen stays queued and resumes after reauthorization.
+                    self.connected = false
+                    self.onReauthRequired?(true)
                 } catch { }
             }
             // Do not send a now-playing update delayed behind an offline scrobble retry.
             if event == nil, let nowBody { _ = try? await api.lastFM(nowBody) }
         }
     }
+
+    func discardPending() {
+        pending.removeAll()
+        save()
+    }
+
+    func refreshStatusSoon() { lastStatus = -.infinity }
 
     private func completeFirst(_ event: [String: Any], server targetServer: String) {
         guard server == targetServer,

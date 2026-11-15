@@ -37,6 +37,15 @@ class LibraryTests(unittest.TestCase):
         state = self.call("create", name=name)
         self.assertTrue(state["acknowledged"], state)
         return state["detail"]
+    def test_lastfm_keeps_backend_conflict_codes(self):
+        with patch.object(client, "request_json", return_value=(200, {"connected": True, "configured": True, "username": "listener"})):
+            self.assertTrue(client.lastfm({"operation": "status"})["connected"])
+        for code in ("event_conflict", "lastfm_disconnected", "invalid_listen"):
+            with self.subTest(code=code), patch.object(client, "request_json", side_effect=client.Rejected(409, code, "message")):
+                with self.assertRaises(client.LastFMError) as error:
+                    client.lastfm({"operation": "scrobble"})
+                self.assertEqual(error.exception.code, code)
+
     def test_multiple_playlists_duplicate_occurrences_edit_and_delete(self):
         first = self.create(); self.create("Second")
         state = self.call("add", id=first["id"], track=TRACK)

@@ -80,6 +80,7 @@ pub enum JobKind {
     Lyrics,
     Cache,
     Library,
+    LastFm,
 }
 
 #[derive(Debug)]
@@ -89,6 +90,7 @@ pub enum BridgePayload {
     Lyrics(LyricsData),
     Cache { cleared: bool },
     Library(crate::library::LibraryState),
+    LastFm(Value),
 }
 
 #[derive(Debug)]
@@ -205,6 +207,7 @@ enum Request<'a> {
     Cache { track: &'a Track },
     ClearCache,
     Library { command: &'a Value },
+    LastFm { command: &'a Value },
 }
 
 #[derive(Deserialize)]
@@ -239,6 +242,9 @@ fn decode_error(raw: Option<RawError>) -> BridgeError {
         "unavailable" => "unavailable",
         "lyrics" => "lyrics",
         "timeout" => "timeout",
+        "event_conflict" => "event_conflict",
+        "lastfm_disconnected" => "lastfm_disconnected",
+        "invalid_listen" => "invalid_listen",
         _ => "bridge",
     };
     let message = sanitize_message(&raw.message);
@@ -542,6 +548,7 @@ enum QueuedRequest {
     Cache(Track),
     ClearCache,
     Library(Value),
+    LastFm(Value),
 }
 
 impl QueuedRequest {
@@ -553,6 +560,7 @@ impl QueuedRequest {
             Self::Cache(track) => encode_request(&Request::Cache { track }),
             Self::ClearCache => encode_request(&Request::ClearCache),
             Self::Library(command) => encode_request(&Request::Library { command }),
+            Self::LastFm(command) => encode_request(&Request::LastFm { command }),
         }
     }
 }
@@ -620,6 +628,7 @@ impl Worker {
             JobKind::Lyrics => "ember-bridge-lyrics",
             JobKind::Cache => "ember-bridge-cache",
             JobKind::Library => "ember-bridge-library",
+            JobKind::LastFm => "ember-bridge-lastfm",
         };
         thread::Builder::new()
             .name(name.to_owned())
@@ -696,6 +705,14 @@ fn worker_loop(
                 JobKind::Search => decode_search(&bytes).map(BridgePayload::Search),
                 JobKind::Resolve => decode_resolve(&bytes).map(BridgePayload::Resolve),
                 JobKind::Lyrics => decode_lyrics(&bytes).map(BridgePayload::Lyrics),
+                JobKind::LastFm => parse_envelope(&bytes).and_then(|envelope| {
+                    if !envelope.ok {
+                        return Err(decode_error(envelope.error));
+                    }
+                    Ok(BridgePayload::LastFm(
+                        envelope.data.ok_or_else(BridgeError::invalid_response)?,
+                    ))
+                }),
                 JobKind::Library => parse_envelope(&bytes).and_then(|envelope| {
                     if !envelope.ok {
                         return Err(decode_error(envelope.error));
@@ -739,6 +756,7 @@ pub struct BridgeService {
     lyrics: WorkerControl,
     cache: WorkerControl,
     library: WorkerControl,
+    lastfm: WorkerControl,
     shutdown: Arc<AtomicBool>,
     next_sequence: AtomicU64,
 }
@@ -794,7 +812,12 @@ impl BridgeService {
                 return Err(error);
             }
         };
-        let library = match Worker::spawn(config, JobKind::Library, tx, Arc::clone(&shutdown)) {
+        let library = match Worker::spawn(
+            config.clone(),
+            JobKind::Library,
+            tx.clone(),
+            Arc::clone(&shutdown),
+        ) {
             Ok(worker) => worker,
             Err(error) => {
                 shutdown.store(true, Ordering::SeqCst);
@@ -805,12 +828,25 @@ impl BridgeService {
                 return Err(error);
             }
         };
+        let lastfm = match Worker::spawn(config, JobKind::LastFm, tx, Arc::clone(&shutdown)) {
+            Ok(worker) => worker,
+            Err(error) => {
+                shutdown.store(true, Ordering::SeqCst);
+                search.cancel();
+                resolve.cancel();
+                lyrics.cancel();
+                cache.cancel();
+                library.cancel();
+                return Err(error);
+            }
+        };
         Ok(Self {
             search,
             resolve,
             lyrics,
             cache,
             library,
+            lastfm,
             shutdown,
             next_sequence: AtomicU64::new(0),
         })
@@ -871,6 +907,18 @@ impl BridgeService {
         Ok(seq)
     }
 
+    pub fn submit_lastfm(&self, command: Value) -> Result<u64, BridgeError> {
+        if self.shutdown.load(Ordering::SeqCst) {
+            return Err(BridgeError::cancelled());
+        }
+        let seq = self.next();
+        self.lastfm.submit(QueuedJob {
+            seq,
+            request: QueuedRequest::LastFm(command),
+        });
+        Ok(seq)
+    }
+
     pub fn cache_track(&self, track: &Track) {
         if !self.shutdown.load(Ordering::SeqCst) && crate::cache::enabled() {
             self.cache.submit(QueuedJob {
@@ -910,6 +958,7 @@ impl BridgeService {
         self.lyrics.cancel();
         self.cache.cancel();
         self.library.cancel();
+        self.lastfm.cancel();
     }
 
     fn next(&self) -> u64 {
@@ -990,6 +1039,15 @@ mod tests {
 
         let invalid = br#"{"ok":true,"data":{"track_id":"dm4tkSNKfFI","source":"lrclib","kind":"synced","lines":[{"text":"Awake","start_ms":2000,"end_ms":1000}],"message":null}}"#;
         assert!(decode_lyrics(invalid).is_err());
+    }
+
+    #[test]
+    fn preserves_lastfm_error_codes_for_retry_decisions() {
+        for code in ["event_conflict", "lastfm_disconnected", "invalid_listen"] {
+            let raw = format!(r#"{{"ok":false,"error":{{"code":"{code}","message":"Last.fm."}}}}"#);
+            let error = decode_search(raw.as_bytes()).expect_err("must be an error");
+            assert_eq!(error.code(), code);
+        }
     }
 
     #[test]

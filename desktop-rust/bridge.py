@@ -424,10 +424,22 @@ def cache_action(action, track=None):
 def run(real_stdout) -> None:
     request = read_request()
     action = request.get("action")
-    if action not in {"search", "resolve", "lyrics", "cache", "clear_cache", "library"}:
+    if action not in {"search", "resolve", "lyrics", "cache", "clear_cache", "library", "lastfm"}:
         raise RequestError("Unknown music bridge action.")
 
     sys.path.insert(0, str(ROOT))
+    if action == "lastfm":
+        from library_client import LastFMError, lastfm
+        command = request.get("command")
+        if not isinstance(command, dict):
+            raise RequestError("Invalid Last.fm command.")
+        try:
+            payload = lastfm(command)
+        except LastFMError as error:
+            fail(real_stdout, error.code, error.message)
+            return
+        emit(real_stdout, {"ok": True, "data": payload})
+        return
     if action == "library":
         from library_client import execute
         command = request.get("command")

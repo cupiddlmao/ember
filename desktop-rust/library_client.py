@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 MAX_BYTES = 10 * 1024 * 1024
+MAX_ERROR_BYTES = 64 * 1024
 
 
 def root():
@@ -63,8 +64,16 @@ def connection():
 
 
 class Rejected(Exception):
-    def __init__(self, status):
+    def __init__(self, status, code="", message=""):
         self.status = status
+        self.code = code
+        self.message = message
+
+
+class LastFMError(Exception):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -72,22 +81,61 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def request(server, key, method, suffix="", body=None):
+def request_json(server, key, method, path, body=None):
     data = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
     if data is not None and len(data) > 8 * 1024 * 1024:
         raise Rejected(413)
     headers = {"Authorization": "Bearer " + key, "Accept": "application/json"}
     if data is not None:
         headers.update({"Content-Type": "application/json", "Content-Length": str(len(data))})
-    req = urllib.request.Request(server + "/v1/library/playlists" + suffix, data=data, headers=headers, method=method)
+    req = urllib.request.Request(server + path, data=data, headers=headers, method=method)
     try:
         with urllib.request.build_opener(NoRedirect).open(req, timeout=15) as response:
             raw = response.read(MAX_BYTES + 1)
+            status = response.status
     except urllib.error.HTTPError as error:
-        raise Rejected(error.code) from None
+        raw = b""
+        try:
+            raw = error.read(MAX_ERROR_BYTES + 1)
+        except OSError:
+            pass
+        code = message = ""
+        try:
+            payload = json.loads(raw[:MAX_ERROR_BYTES])
+            detail = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(detail, dict):
+                code = str(detail.get("code", ""))
+                message = str(detail.get("message", ""))
+        except (UnicodeDecodeError, ValueError, TypeError):
+            pass
+        raise Rejected(error.code, code, message) from None
     if len(raw) > MAX_BYTES:
-        raise ValueError("Playlist response is too large.")
-    return json.loads(raw)
+        raise ValueError("Ember response is too large.")
+    return status, json.loads(raw)
+
+
+def request(server, key, method, suffix="", body=None):
+    _, payload = request_json(server, key, method, "/v1/library/playlists" + suffix, body)
+    return payload
+
+
+def lastfm(command):
+    if not isinstance(command, dict):
+        raise ValueError("Invalid Last.fm command.")
+    operation = command.get("operation")
+    if operation not in {"status", "connect", "finish", "disconnect", "now", "scrobble"}:
+        raise ValueError("Unknown Last.fm command.")
+    body = {"action": operation}
+    for field in ("id", "title", "artist", "album", "duration", "listened", "started"):
+        if field in command:
+            body[field] = command[field]
+    try:
+        _, payload = request_json(*connection(), "POST", "/v1/lastfm", body)
+    except Rejected as error:
+        code = error.code if error.code in {"event_conflict", "lastfm_disconnected", "invalid_listen"} else "unavailable"
+        message = error.message or "Last.fm could not complete this request. Retry shortly."
+        raise LastFMError(code, message) from None
+    return payload
 
 
 def identifier(value):

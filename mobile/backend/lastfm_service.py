@@ -134,7 +134,19 @@ class LastFM:
                 session, name, token, created = db.execute("SELECT session,name,token,created FROM account WHERE id=1").fetchone()
                 pending = db.execute("SELECT count(*) FROM outbox WHERE state='pending'").fetchone()[0]
             if action == "status":
-                return {"configured": bool(self.key and self.secret), "connected": bool(session), "username": name or "", "pending": pending}
+                connected = bool(session)
+                if connected:
+                    # A stored session can be revoked upstream. Verify it on status so
+                    # clients cannot display Connected while reporting is already dead.
+                    try:
+                        self.call("user.getInfo", sk=session)
+                    except Exception:
+                        # Any validation failure is transient unless error 9 already
+                        # cleared the session; keep working on a temporary outage.
+                        with self.db() as db:
+                            session = db.execute("SELECT session FROM account WHERE id=1").fetchone()[0]
+                        connected = bool(session)
+                return {"configured": bool(self.key and self.secret), "connected": connected, "username": name or "", "pending": pending}
             if action == "disconnect":
                 with self.db() as db:
                     db.execute("UPDATE account SET session=NULL,name=NULL,token=NULL,created=NULL WHERE id=1")

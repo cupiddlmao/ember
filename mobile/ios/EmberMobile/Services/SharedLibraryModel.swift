@@ -81,7 +81,7 @@ final class SharedLibraryModel: ObservableObject {
         } catch {
             guard epoch == ticket else { return }
             isOnline = false
-            if case APIError.server(404, _) = error {
+            if case APIError.server(404, _, _) = error {
                 errorMessage = "Shared playlists need Ember backend 0.3.0 or newer. Update the laptop server."
             } else {
                 errorMessage = error.localizedDescription
@@ -107,7 +107,7 @@ final class SharedLibraryModel: ObservableObject {
             guard epoch == ticket else { return nil }
             isOnline = false
             errorMessage = error.localizedDescription
-            if case APIError.server(404, _) = error { details.removeValue(forKey: id) }
+            if case APIError.server(404, _, _) = error { details.removeValue(forKey: id) }
             return nil
         }
     }
@@ -158,7 +158,7 @@ final class SharedLibraryModel: ObservableObject {
             isSaving = false
             isOnline = false
             switch error {
-            case APIError.server(let status, _) where [400, 401, 404, 409, 413, 415].contains(status):
+            case APIError.server(let status, _, _) where [400, 401, 404, 409, 413, 415].contains(status):
                 rejectPending(mutation)
                 if status == 409 {
                     errorMessage = "This playlist changed on another device. Reload it, then make your edit again."
