@@ -8,8 +8,9 @@ struct SettingsView: View {
     @State private var lastFMStatus = "Connect once for both desktop and iPhone."
     @State private var lastFMBusy = false
     @State private var lastFMConnected = false
-    @State private var lastFMAuthorizing = false
+    @State private var lastFMConfigured = false
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -32,7 +33,7 @@ struct SettingsView: View {
                                 Button("Disconnect Last.fm", role: .destructive) { lastFMAction("disconnect") }
                             } else {
                                 Button("Connect Last.fm") { lastFMAction("connect") }
-                                if lastFMAuthorizing {
+                                if lastFMConfigured {
                                     Button("Finish browser authorization") { lastFMAction("finish") }
                                 }
                             }
@@ -104,6 +105,9 @@ struct SettingsView: View {
             .toolbarBackground(.visible, for: .navigationBar)
         }
         .task { lastFMAction("status") }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { lastFMAction("status") }
+        }
         .preferredColorScheme(.dark)
         .confirmationDialog(
             "Forget the server access key?",
@@ -129,23 +133,18 @@ struct SettingsView: View {
                 let result = try await api.lastFM(["action": action])
                 if let raw = result["url"] as? String, let url = URL(string: raw),
                    url.scheme == "https", url.host == "www.last.fm" {
-                    lastFMAuthorizing = true
-                    lastFMConnected = false
                     openURL(url)
                     lastFMStatus = "Approve in your browser, then tap Finish browser authorization."
                 } else {
                     let status = try await api.lastFM(["action": "status"])
                     lastFMConnected = status["connected"] as? Bool == true
+                    lastFMConfigured = status["configured"] as? Bool == true
                     if lastFMConnected {
-                        lastFMAuthorizing = false
                         lastFMStatus = "Connected as \(status["username"] as? String ?? "") · \(status["pending"] as? Int ?? 0) pending"
+                    } else if lastFMConfigured {
+                        lastFMStatus = "Not connected."
                     } else {
-                        if action == "disconnect" { lastFMAuthorizing = false }
-                        if status["configured"] as? Bool == true {
-                            lastFMStatus = "Not connected."
-                        } else {
-                            lastFMStatus = "Set LASTFM_API_KEY and LASTFM_API_SECRET on the server first."
-                        }
+                        lastFMStatus = "Set LASTFM_API_KEY and LASTFM_API_SECRET on the server first."
                     }
                 }
             } catch { lastFMStatus = error.localizedDescription }
