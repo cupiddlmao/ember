@@ -102,6 +102,9 @@ fn activate(application: &gtk4::Application) {
     let settings = build_settings_window(&window);
     let lastfm = LastFmReporter::load();
     let lastfm_label = settings.7.clone();
+    let lastfm_connect = settings.8.clone();
+    let lastfm_finish = settings.9.clone();
+    let lastfm_disconnect = settings.10.clone();
     let settings_window = settings.0.clone();
     sidebar.settings_button.connect_clicked(move |_| {
         settings_window.present();
@@ -238,6 +241,9 @@ fn activate(application: &gtk4::Application) {
         queue_nav_count: sidebar.queue_count,
         lastfm,
         lastfm_label,
+        lastfm_connect,
+        lastfm_finish,
+        lastfm_disconnect,
         home_stack: home.stack,
         home_search_button: home.search_button,
         recent_flow: home.recent_flow,
@@ -313,6 +319,7 @@ fn activate(application: &gtk4::Application) {
     ui.borrow_mut().sync_nav();
     ui.borrow_mut().refresh_transport();
     ui.borrow_mut().refresh_progress();
+    ui.borrow_mut().refresh_lastfm_label();
 
     let weak_ui = Rc::downgrade(&ui);
     settings.1.connect_toggled(move |toggle| {
@@ -390,6 +397,9 @@ fn build_settings_window(
     gtk4::Button,
     gtk4::Label,
     gtk4::Label,
+    gtk4::Button,
+    gtk4::Button,
+    gtk4::Button,
 ) {
     let window = gtk4::Window::builder()
         .title("Ember Settings")
@@ -441,6 +451,12 @@ fn build_settings_window(
     lastfm_status.set_wrap(true);
     lastfm_status.set_max_width_chars(45);
     content.append(&lastfm_status);
+    let lastfm_connect = gtk4::Button::with_label("Connect Last.fm");
+    let lastfm_finish = gtk4::Button::with_label("Finish browser authorization");
+    let lastfm_disconnect = gtk4::Button::with_label("Disconnect Last.fm");
+    content.append(&lastfm_connect);
+    content.append(&lastfm_finish);
+    content.append(&lastfm_disconnect);
     let close = gtk4::Button::with_label("Done");
     let weak_window = window.downgrade();
     close.connect_clicked(move |_| {
@@ -459,6 +475,9 @@ fn build_settings_window(
         save,
         feedback,
         lastfm_status,
+        lastfm_connect,
+        lastfm_finish,
+        lastfm_disconnect,
     )
 }
 
@@ -1104,6 +1123,9 @@ struct AppUi {
     queue_nav_count: gtk4::Label,
     lastfm: LastFmReporter,
     lastfm_label: gtk4::Label,
+    lastfm_connect: gtk4::Button,
+    lastfm_finish: gtk4::Button,
+    lastfm_disconnect: gtk4::Button,
     home_stack: gtk4::Stack,
     home_search_button: gtk4::Button,
     recent_flow: gtk4::FlowBox,
@@ -1975,7 +1997,22 @@ impl AppUi {
         if self.closing {
             return;
         }
+        if let Some(url) = self.lastfm.take_connect_url() {
+            if !url.starts_with("https://www.last.fm/api/auth/?") {
+                self.lastfm
+                    .set_error("Last.fm returned an unsafe authorization link.");
+            } else if gtk4::gio::AppInfo::launch_default_for_uri(
+                &url,
+                None::<&gtk4::gio::AppLaunchContext>,
+            )
+            .is_err()
+            {
+                self.lastfm
+                    .set_error("Could not open the Last.fm authorization page in a browser.");
+            }
+        }
         let Some(bridge) = self.bridge.as_ref() else {
+            self.refresh_lastfm_label();
             return;
         };
         let track = self.queue.current().map(|entry| entry.track.clone());
@@ -2001,12 +2038,24 @@ impl AppUi {
     }
 
     fn refresh_lastfm_label(&self) {
-        self.lastfm_label.set_text(&self.lastfm.status_text());
-        if self.lastfm.status_text().starts_with("Last.fm needs") {
+        let text = self.lastfm.status_text();
+        if self.lastfm_label.text() != text {
+            self.lastfm_label.set_text(&text);
+        }
+        if text.starts_with("Last.fm needs") {
             self.lastfm_label.add_css_class("error");
         } else {
             self.lastfm_label.remove_css_class("error");
         }
+        let connected = self.lastfm.connected();
+        self.lastfm_connect.set_visible(!connected);
+        self.lastfm_finish
+            .set_visible(!connected && self.lastfm.configured());
+        self.lastfm_disconnect.set_visible(connected);
+        let sensitive = !self.lastfm.busy();
+        self.lastfm_connect.set_sensitive(sensitive);
+        self.lastfm_finish.set_sensitive(sensitive);
+        self.lastfm_disconnect.set_sensitive(sensitive);
     }
 
     fn seek_to_progress(&mut self, fraction: f64) {
@@ -2679,6 +2728,30 @@ fn install_callbacks(
             app.borrow_mut().queue_clear();
         }
     });
+
+    for (button, operation) in [
+        (ui.borrow().lastfm_connect.clone(), "connect"),
+        (ui.borrow().lastfm_finish.clone(), "finish"),
+        (ui.borrow().lastfm_disconnect.clone(), "disconnect"),
+    ] {
+        let weak = Rc::downgrade(ui);
+        button.connect_clicked(move |_| {
+            let Some(app) = weak.upgrade() else {
+                return;
+            };
+            let mut app = app.borrow_mut();
+            let bridge = app.bridge.take();
+            let result = match bridge.as_ref() {
+                Some(bridge) => app.lastfm.control(operation, bridge),
+                None => Err("The music bridge is unavailable.".to_owned()),
+            };
+            app.bridge = bridge;
+            if let Err(message) = result {
+                app.lastfm.set_error(message);
+            }
+            app.refresh_lastfm_label();
+        });
+    }
 
     let weak = Rc::downgrade(ui);
     ui.borrow().lyrics_retry.connect_clicked(move |_| {

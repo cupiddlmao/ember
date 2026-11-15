@@ -224,8 +224,11 @@ struct LastFMCheck {
         script.enqueue(status: 200, ["connected": false, "configured": true,
                                      "username": "tester", "pending": 0])
         let sixth = makeReporter()
+        var statusReauth = false
+        sixth.onReauthRequired = { statusReauth = $0 }
         await prime(sixth, statuses: 6)
         assert(pendingCount() == 1, "a disconnected status must retain unsent listens")
+        assert(statusReauth, "a disconnected status with a known account must surface reauth")
 
         // Once the account is reauthorized, the preserved listen resumes.
         queueStatus()
