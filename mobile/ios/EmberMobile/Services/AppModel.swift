@@ -167,10 +167,10 @@ final class AppModel: ObservableObject {
         accessKey = ""
     }
 
-    func lastFMConnected() {
+    func lastFMConnected(reconnected: Bool = false) {
         let recovered = lastFMNeedsReauth
         lastFMNeedsReauth = false
-        if recovered { player.lastFM.refreshStatusSoon() }
+        if recovered || reconnected { player.lastFM.refreshStatusSoon() }
     }
 
     func lastFMDisconnected() {

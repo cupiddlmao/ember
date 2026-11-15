@@ -155,12 +155,21 @@ final class LastFMReporter {
                 } catch { }
             }
             // Do not send a now-playing update delayed behind an offline scrobble retry.
-            if event == nil, let nowBody { _ = try? await api.lastFM(nowBody) }
+            if event == nil, let nowBody {
+                do {
+                    _ = try await api.lastFM(nowBody)
+                } catch APIError.server(409, _, let code) where code == "lastfm_disconnected" {
+                    self.connected = false
+                    self.onReauthRequired?(true)
+                } catch { }
+            }
         }
     }
 
     func discardPending() {
         pending.removeAll()
+        connected = false
+        onReauthRequired?(false)
         save()
     }
 

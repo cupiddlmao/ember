@@ -90,6 +90,7 @@ pub struct LastFmReporter {
     account: String,
     reauth: bool,
     last_track: Option<String>,
+    last_entry: Option<crate::queue::EntryId>,
     inflight: Option<(Inflight, u64)>,
     connect_url: Option<String>,
     control_error: Option<String>,
@@ -127,6 +128,7 @@ impl LastFmReporter {
             account: value.account,
             reauth: false,
             last_track: None,
+            last_entry: None,
             inflight: None,
             connect_url: None,
             control_error: None,
@@ -204,6 +206,7 @@ impl LastFmReporter {
     pub fn sample(
         &mut self,
         track: Option<&Track>,
+        entry_id: Option<crate::queue::EntryId>,
         position_ms: u64,
         duration_ms: u64,
         playing: bool,
@@ -211,8 +214,9 @@ impl LastFmReporter {
     ) {
         let now = Instant::now();
         let track_id = track.map(|track| track.id.clone());
-        if track_id != self.last_track {
+        if track_id != self.last_track || entry_id != self.last_entry {
             self.last_track = track_id;
+            self.last_entry = entry_id;
             self.playback_id = uuid_like();
             self.started = 0;
             self.submitted = false;
