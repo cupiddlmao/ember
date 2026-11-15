@@ -70,6 +70,9 @@ enum Inflight {
     Status,
     Now,
     Scrobble,
+    Connect,
+    Finish,
+    Disconnect,
 }
 
 pub struct LastFmReporter {
@@ -83,10 +86,14 @@ pub struct LastFmReporter {
     last_status: Option<Instant>,
     pending: Vec<LastFmEvent>,
     connected: bool,
+    configured: bool,
     account: String,
     reauth: bool,
     last_track: Option<String>,
     inflight: Option<(Inflight, u64)>,
+    connect_url: Option<String>,
+    control_error: Option<String>,
+    message: Option<String>,
     outbox: PathBuf,
 }
 
@@ -116,17 +123,27 @@ impl LastFmReporter {
             last_status: None,
             pending: value.pending,
             connected: false,
+            configured: false,
             account: value.account,
             reauth: false,
             last_track: None,
             inflight: None,
+            connect_url: None,
+            control_error: None,
+            message: None,
             outbox,
         }
     }
 
     pub fn status_text(&self) -> String {
+        if let Some(error) = &self.control_error {
+            return error.clone();
+        }
+        if let Some(message) = &self.message {
+            return message.clone();
+        }
         if self.reauth {
-            return "Last.fm needs reauthorization. Reconnect on your iPhone.".to_owned();
+            return "Last.fm needs reauthorization. Reconnect here or on your iPhone.".to_owned();
         }
         if self.connected {
             let pending = if self.pending.is_empty() {
@@ -136,7 +153,52 @@ impl LastFmReporter {
             };
             return format!("Last.fm connected as {}{pending}.", self.account);
         }
-        "Last.fm is not connected. Connect it in Ember on your iPhone.".to_owned()
+        "Last.fm is not connected. Connect it here or on your iPhone.".to_owned()
+    }
+
+    pub fn connected(&self) -> bool {
+        self.connected
+    }
+
+    pub fn configured(&self) -> bool {
+        self.configured
+    }
+
+    pub fn busy(&self) -> bool {
+        self.inflight.is_some()
+    }
+
+    pub fn take_connect_url(&mut self) -> Option<String> {
+        self.connect_url.take()
+    }
+
+    pub fn set_error(&mut self, message: impl Into<String>) {
+        self.control_error = Some(message.into());
+    }
+
+    pub fn control(&mut self, operation: &str, bridge: &BridgeService) -> Result<(), String> {
+        let kind = match operation {
+            "connect" => Inflight::Connect,
+            "finish" => Inflight::Finish,
+            "disconnect" => Inflight::Disconnect,
+            _ => return Err("Unknown Last.fm action.".to_owned()),
+        };
+        if self.busy() {
+            return Err("Wait for the current Last.fm request to finish.".to_owned());
+        }
+        self.control_error = None;
+        self.message = None;
+        self.submit(
+            kind,
+            json!({ "operation": operation }),
+            bridge,
+            Instant::now(),
+        );
+        if self.inflight.is_some() {
+            Ok(())
+        } else {
+            Err("The Last.fm request could not start.".to_owned())
+        }
     }
 
     pub fn sample(
@@ -246,16 +308,18 @@ impl LastFmReporter {
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_owned();
-                    let was_connected = self.connected;
+                    self.configured = configured;
                     if !self.account.is_empty() && !account.is_empty() && self.account != account {
                         self.pending.clear();
                         self.clock = ListeningClock::default();
                     }
                     self.connected = connected;
+                    let known_account = !account.is_empty();
                     self.account = account;
                     if connected || !configured {
                         self.reauth = false;
-                    } else if was_connected {
+                    } else if known_account {
+                        // The backend kept the account name after clearing a revoked session.
                         self.reauth = true;
                     }
                     self.save();
@@ -282,6 +346,59 @@ impl LastFmReporter {
                     }
                 }
             }
+            Inflight::Connect => match job.result {
+                Ok(BridgePayload::LastFm(value)) => {
+                    if let Some(url) = value.get("url").and_then(Value::as_str) {
+                        self.connect_url = Some(url.to_owned());
+                        self.message = Some(
+                            "Approve Ember in your browser, then click Finish browser authorization."
+                                .to_owned(),
+                        );
+                    } else {
+                        self.control_error =
+                            Some("Last.fm did not return an authorization link.".to_owned());
+                    }
+                }
+                Err(error) => self.control_error = Some(error.message().to_owned()),
+                _ => {
+                    self.control_error =
+                        Some("The Last.fm bridge returned the wrong result type.".to_owned())
+                }
+            },
+            Inflight::Finish => match job.result {
+                Ok(BridgePayload::LastFm(value)) => {
+                    self.connected = true;
+                    self.configured = true;
+                    self.reauth = false;
+                    self.message = None;
+                    if let Some(account) = value.get("username").and_then(Value::as_str) {
+                        self.account = account.to_owned();
+                    }
+                    self.last_status = Some(Instant::now());
+                    self.save();
+                }
+                Err(error) => self.control_error = Some(error.message().to_owned()),
+                _ => {
+                    self.control_error =
+                        Some("The Last.fm bridge returned the wrong result type.".to_owned())
+                }
+            },
+            Inflight::Disconnect => match job.result {
+                Ok(BridgePayload::LastFm(_)) => {
+                    self.connected = false;
+                    self.reauth = false;
+                    self.message = None;
+                    self.account.clear();
+                    self.pending.clear();
+                    self.last_status = Some(Instant::now());
+                    self.save();
+                }
+                Err(error) => self.control_error = Some(error.message().to_owned()),
+                _ => {
+                    self.control_error =
+                        Some("The Last.fm bridge returned the wrong result type.".to_owned())
+                }
+            },
         }
     }
 
@@ -293,10 +410,6 @@ impl LastFmReporter {
                 self.last_attempt = Some(now);
             }
         }
-    }
-
-    fn busy(&self) -> bool {
-        self.inflight.is_some()
     }
 
     fn complete_first(&mut self) {

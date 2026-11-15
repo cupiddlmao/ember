@@ -92,7 +92,6 @@ final class LastFMReporter {
                     let connected = result["connected"] as? Bool == true
                     let configured = result["configured"] as? Bool == true
                     let account = result["username"] as? String ?? ""
-                    let wasConnected = self.connected
                     // A session can expire while unsent listens are queued. Keep them
                     // until the user reauthorizes, unless the account really changed.
                     if !self.account.isEmpty, !account.isEmpty, self.account != account {
@@ -103,7 +102,8 @@ final class LastFMReporter {
                     self.account = account
                     if connected || !configured {
                         self.onReauthRequired?(false)
-                    } else if wasConnected {
+                    } else if !account.isEmpty {
+                        // The backend kept the account name after clearing a revoked session.
                         self.onReauthRequired?(true)
                     }
                     self.save()

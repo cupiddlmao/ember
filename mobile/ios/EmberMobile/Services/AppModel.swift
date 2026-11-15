@@ -168,8 +168,9 @@ final class AppModel: ObservableObject {
     }
 
     func lastFMConnected() {
+        let recovered = lastFMNeedsReauth
         lastFMNeedsReauth = false
-        player.lastFM.refreshStatusSoon()
+        if recovered { player.lastFM.refreshStatusSoon() }
     }
 
     func lastFMDisconnected() {
