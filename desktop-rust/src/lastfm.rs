@@ -1,15 +1,19 @@
 use crate::bridge::{BridgePayload, BridgeService, JobResult};
 use crate::model::Track;
+use gtk4::glib;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const STATUS_INTERVAL_SECS: u64 = 60;
 const NOW_INTERVAL_SECS: u64 = 60;
 const RETRY_INTERVAL_SECS: u64 = 30;
 const MAX_PENDING: usize = 1000;
+const MAX_OUTBOX_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct LastFmEvent {
@@ -28,6 +32,8 @@ struct Outbox {
     account: String,
     #[serde(default)]
     pending: Vec<LastFmEvent>,
+    #[serde(default)]
+    awaiting_finish: bool,
 }
 
 struct ListeningClock {
@@ -95,25 +101,20 @@ pub struct LastFmReporter {
     connect_url: Option<String>,
     control_error: Option<String>,
     message: Option<String>,
+    awaiting_finish: bool,
     outbox: PathBuf,
 }
 
 impl LastFmReporter {
     pub fn load() -> Self {
-        let outbox = outbox_path();
-        let mut value = Outbox::default();
-        if let Ok(metadata) = fs::metadata(&outbox) {
-            if metadata.len() <= 1024 * 1024 {
-                if let Ok(data) = fs::read(&outbox) {
-                    if let Ok(parsed) = serde_json::from_slice::<Outbox>(&data) {
-                        value = parsed;
-                    }
-                }
-            }
-        }
+        Self::from_outbox(outbox_path())
+    }
+
+    fn from_outbox(outbox: PathBuf) -> Self {
+        let mut value = read_outbox(&outbox);
         let excess = value.pending.len().saturating_sub(MAX_PENDING);
         value.pending.drain(..excess);
-        Self {
+        let mut reporter = Self {
             clock: ListeningClock::default(),
             playback_id: uuid_like(),
             started: 0,
@@ -133,13 +134,23 @@ impl LastFmReporter {
             connect_url: None,
             control_error: None,
             message: None,
+            awaiting_finish: value.awaiting_finish,
             outbox,
+        };
+        if reporter.account.is_empty() && !reporter.pending.is_empty() {
+            reporter.pending.clear();
+            reporter.save();
         }
+        reporter
     }
 
     pub fn status_text(&self) -> String {
         if let Some(error) = &self.control_error {
             return error.clone();
+        }
+        if self.awaiting_finish {
+            return "Approve Ember in your browser, then click Finish browser authorization."
+                .to_owned();
         }
         if let Some(message) = &self.message {
             return message.clone();
@@ -162,8 +173,9 @@ impl LastFmReporter {
         self.connected
     }
 
-    pub fn configured(&self) -> bool {
-        self.configured
+    /// Persisted, so a browser approval survives an app restart.
+    pub fn authorization_pending(&self) -> bool {
+        self.awaiting_finish
     }
 
     pub fn busy(&self) -> bool {
@@ -172,6 +184,15 @@ impl LastFmReporter {
 
     pub fn take_connect_url(&mut self) -> Option<String> {
         self.connect_url.take()
+    }
+
+    fn replace_account(&mut self, account: String) {
+        // A different backend identity must not inherit this client's queue.
+        if self.account != account {
+            self.pending.clear();
+            self.clock = ListeningClock::default();
+        }
+        self.account = account;
     }
 
     pub fn set_error(&mut self, message: impl Into<String>) {
@@ -313,13 +334,12 @@ impl LastFmReporter {
                         .unwrap_or("")
                         .to_owned();
                     self.configured = configured;
-                    if !self.account.is_empty() && !account.is_empty() && self.account != account {
-                        self.pending.clear();
-                        self.clock = ListeningClock::default();
-                    }
+                    self.replace_account(account);
                     self.connected = connected;
-                    let known_account = !account.is_empty();
-                    self.account = account;
+                    if connected {
+                        self.awaiting_finish = false;
+                    }
+                    let known_account = !self.account.is_empty();
                     if connected || !configured {
                         self.reauth = false;
                     } else if known_account {
@@ -358,6 +378,8 @@ impl LastFmReporter {
                             "Approve Ember in your browser, then click Finish browser authorization."
                                 .to_owned(),
                         );
+                        self.awaiting_finish = true;
+                        self.save();
                     } else {
                         self.control_error =
                             Some("Last.fm did not return an authorization link.".to_owned());
@@ -371,13 +393,21 @@ impl LastFmReporter {
             },
             Inflight::Finish => match job.result {
                 Ok(BridgePayload::LastFm(value)) => {
+                    let Some(account) = value
+                        .get("username")
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.is_empty())
+                    else {
+                        self.control_error =
+                            Some("Last.fm did not return an account name.".to_owned());
+                        return;
+                    };
+                    self.replace_account(account.to_owned());
                     self.connected = true;
                     self.configured = true;
                     self.reauth = false;
                     self.message = None;
-                    if let Some(account) = value.get("username").and_then(Value::as_str) {
-                        self.account = account.to_owned();
-                    }
+                    self.awaiting_finish = false;
                     self.last_status = Some(Instant::now());
                     self.save();
                 }
@@ -392,6 +422,7 @@ impl LastFmReporter {
                     self.connected = false;
                     self.reauth = false;
                     self.message = None;
+                    self.awaiting_finish = false;
                     self.account.clear();
                     self.pending.clear();
                     self.last_status = Some(Instant::now());
@@ -408,7 +439,12 @@ impl LastFmReporter {
 
     fn submit(&mut self, kind: Inflight, command: Value, bridge: &BridgeService, now: Instant) {
         match bridge.submit_lastfm(command) {
-            Ok(seq) => self.inflight = Some((kind, seq)),
+            Ok(seq) => {
+                if kind == Inflight::Status {
+                    self.last_status = Some(now);
+                }
+                self.inflight = Some((kind, seq));
+            }
             Err(_) => {
                 self.last_status = Some(now);
                 self.last_attempt = Some(now);
@@ -453,31 +489,75 @@ impl LastFmReporter {
     }
 
     fn save(&self) {
+        // Storage failures must not interrupt playback; callers keep in-memory state.
+        let _ = self.persist_outbox();
+    }
+
+    fn persist_outbox(&self) -> io::Result<()> {
         let Some(parent) = self.outbox.parent() else {
-            return;
+            return Ok(());
         };
-        if fs::create_dir_all(parent).is_err() {
-            return;
-        }
+        fs::create_dir_all(parent)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
         }
         let value = Outbox {
             account: self.account.clone(),
             pending: self.pending.clone(),
+            awaiting_finish: self.awaiting_finish,
         };
-        let Ok(data) = serde_json::to_vec(&value) else {
-            return;
-        };
-        let _ = fs::write(&self.outbox, data);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&self.outbox, fs::Permissions::from_mode(0o600));
+        let data = serde_json::to_vec(&value).map_err(io::Error::other)?;
+        let temp = parent.join(format!("lastfm-outbox-{}.tmp", glib::uuid_string_random()));
+        let result = (|| -> io::Result<()> {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&temp)?;
+            file.write_all(&data)?;
+            file.sync_all()?;
+            // The temporary file already has the destination permissions, so the
+            // rename below moves both the bytes and their protection.
+            fs::rename(&temp, &self.outbox)?;
+            File::open(parent)?.sync_all()
+        })();
+        let _ = fs::remove_file(&temp);
+        result
+    }
+}
+
+fn read_outbox(path: &Path) -> Outbox {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return Outbox::default(),
+    };
+    if !metadata.is_file() {
+        return Outbox::default();
+    }
+    if metadata.len() > MAX_OUTBOX_BYTES {
+        quarantine_outbox(path);
+        return Outbox::default();
+    }
+    let stored = fs::read(path)
+        .ok()
+        .and_then(|data| serde_json::from_slice::<Outbox>(&data).ok());
+    match stored {
+        Some(value) => value,
+        None => {
+            quarantine_outbox(path);
+            Outbox::default()
         }
     }
+}
+
+fn quarantine_outbox(path: &Path) {
+    let backup = path.with_extension(format!("json.corrupt-{}", glib::uuid_string_random()));
+    let _ = fs::rename(path, &backup);
 }
 
 fn outbox_path() -> PathBuf {
@@ -515,6 +595,469 @@ fn uuid_like() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge::JobKind;
+    use crate::config::BridgeConfig;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    const STUB_BRIDGE: &str = r#"#!/bin/sh
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+request=$(cat)
+printf '%s\n' "$request" >> "$ROOT/requests.log"
+action=$(printf '%s' "$request" | sed -n 's/.*"action":"\([^"]*\)".*/\1/p')
+operation=$(printf '%s' "$request" | sed -n 's/.*"operation":"\([^"]*\)".*/\1/p')
+case "$action:$operation" in
+    lastfm:status)
+        count=0
+        [ -f "$ROOT/status.count" ] && count=$(cat "$ROOT/status.count")
+        count=$((count + 1))
+        printf '%s' "$count" > "$ROOT/status.count"
+        if [ "$count" -eq 1 ]; then
+            printf '%s\n' '{"ok":true,"data":{"configured":true,"connected":false,"username":"","pending":0}}'
+        else
+            printf '%s\n' '{"ok":true,"data":{"configured":true,"connected":false,"username":"desktop-tester","pending":0}}'
+        fi
+        ;;
+    lastfm:connect)
+        printf '%s\n' '{"ok":true,"data":{"url":"https://www.last.fm/api/auth/?api_key=stub&token=stub-token"}}'
+        ;;
+    lastfm:finish)
+        printf '%s\n' '{"ok":true,"data":{"ok":true,"username":"desktop-tester"}}'
+        ;;
+    lastfm:disconnect)
+        printf '%s\n' '{"ok":true,"data":{"ok":true}}'
+        ;;
+    *)
+        printf '%s\n' '{"ok":false,"error":{"code":"bridge","message":"Unknown stub request."}}'
+        ;;
+esac
+"#;
+
+    const ACCOUNT_STUB_BRIDGE: &str = r#"#!/bin/sh
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+request=$(cat)
+printf '%s\n' "$request" >> "$ROOT/requests.log"
+action=$(printf '%s' "$request" | sed -n 's/.*"action":"\([^"]*\)".*/\1/p')
+operation=$(printf '%s' "$request" | sed -n 's/.*"operation":"\([^"]*\)".*/\1/p')
+finish_username=desktop-tester
+[ -f "$ROOT/finish-username" ] && finish_username=$(cat "$ROOT/finish-username")
+case "$action:$operation" in
+    lastfm:status)
+        connected=$(cat "$ROOT/backend-connected")
+        configured=$(cat "$ROOT/backend-configured")
+        username=$(cat "$ROOT/backend-username")
+        printf '{"ok":true,"data":{"configured":%s,"connected":%s,"username":"%s","pending":0}}\n' "$configured" "$connected" "$username"
+        ;;
+    lastfm:connect)
+        printf '%s\n' '{"ok":true,"data":{"url":"https://www.last.fm/api/auth/?api_key=stub&token=stub-token"}}'
+        ;;
+    lastfm:finish)
+        printf true > "$ROOT/backend-connected"
+        printf true > "$ROOT/backend-configured"
+        printf '%s' "$finish_username" > "$ROOT/backend-username"
+        printf '{"ok":true,"data":{"ok":true,"username":"%s"}}\n' "$finish_username"
+        ;;
+    lastfm:disconnect)
+        printf false > "$ROOT/backend-connected"
+        printf true > "$ROOT/backend-configured"
+        : > "$ROOT/backend-username"
+        printf '%s\n' '{"ok":true,"data":{"ok":true}}'
+        ;;
+    *)
+        printf '%s\n' '{"ok":false,"error":{"code":"bridge","message":"Unknown stub request."}}'
+        ;;
+esac
+"#;
+
+    fn fake_checkout(script: &str) -> tempfile::TempDir {
+        let root = tempfile::tempdir().expect("temp checkout");
+        fs::write(root.path().join("music.py"), "# stub\n").expect("music.py");
+        let bridge_dir = root.path().join("desktop-rust");
+        fs::create_dir_all(&bridge_dir).expect("bridge dir");
+        fs::write(bridge_dir.join("bridge.py"), "# stub\n").expect("bridge.py");
+        let venv = root.path().join(".venv/bin");
+        fs::create_dir_all(&venv).expect("venv dir");
+        let python = venv.join("python");
+        fs::write(&python, script).expect("stub bridge");
+        fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).expect("executable");
+        root
+    }
+
+    fn stub_checkout() -> tempfile::TempDir {
+        fake_checkout(STUB_BRIDGE)
+    }
+
+    fn queued_listen(id: &str) -> LastFmEvent {
+        LastFmEvent {
+            id: id.to_owned(),
+            title: "Song".to_owned(),
+            artist: "Artist".to_owned(),
+            album: String::new(),
+            duration: 180,
+            listened: 90,
+            started: 1,
+        }
+    }
+
+    fn seed_outbox(outbox: &std::path::Path, account: &str, ids: &[&str]) {
+        let seeded = Outbox {
+            account: account.to_owned(),
+            pending: ids.iter().map(|id| queued_listen(id)).collect(),
+            awaiting_finish: false,
+        };
+        fs::create_dir_all(outbox.parent().expect("outbox parent")).expect("state dir");
+        fs::write(outbox, serde_json::to_vec(&seeded).expect("encode outbox"))
+            .expect("seed outbox");
+    }
+
+    fn saved_outbox(outbox: &std::path::Path) -> Outbox {
+        serde_json::from_slice(&fs::read(outbox).expect("saved outbox")).expect("decode outbox")
+    }
+
+    fn set_backend_state(
+        root: &std::path::Path,
+        connected: bool,
+        configured: bool,
+        username: &str,
+    ) {
+        fs::write(
+            root.join("backend-connected"),
+            if connected { "true" } else { "false" },
+        )
+        .expect("backend connected");
+        fs::write(
+            root.join("backend-configured"),
+            if configured { "true" } else { "false" },
+        )
+        .expect("backend configured");
+        fs::write(root.join("backend-username"), username).expect("backend username");
+    }
+
+    fn account_stub_checkout() -> tempfile::TempDir {
+        let root = fake_checkout(ACCOUNT_STUB_BRIDGE);
+        set_backend_state(root.path(), false, true, "");
+        root
+    }
+
+    fn stub_operations(root: &std::path::Path) -> Vec<String> {
+        let log = fs::read_to_string(root.join("requests.log")).expect("stub request log");
+        log.lines()
+            .map(|line| {
+                let request: Value = serde_json::from_str(line).expect("stub request JSON");
+                assert_eq!(
+                    request.get("action").and_then(Value::as_str),
+                    Some("lastfm")
+                );
+                request
+                    .get("command")
+                    .and_then(|command| command.get("operation"))
+                    .and_then(Value::as_str)
+                    .expect("operation")
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    fn next_result(rx: &mpsc::Receiver<JobResult>) -> JobResult {
+        let job = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("stub bridge result");
+        assert_eq!(job.kind, JobKind::LastFm);
+        job
+    }
+
+    #[test]
+    fn settings_control_flow_uses_the_lastfm_stub_backend() {
+        let checkout = stub_checkout();
+        let outbox = checkout.path().join("state/lastfm-outbox.json");
+        seed_outbox(&outbox, "", &[]);
+
+        let (tx, rx) = mpsc::channel();
+        let bridge = BridgeService::new(
+            BridgeConfig::from_root(checkout.path()).expect("stub config"),
+            tx,
+        )
+        .expect("stub bridge service");
+        let mut reporter = LastFmReporter::from_outbox(outbox.clone());
+
+        reporter.sample(None, None, 0, 0, false, &bridge);
+        reporter.handle_result(next_result(&rx));
+        assert!(!reporter.connected());
+        assert!(!reporter.reauth);
+        assert!(!reporter.authorization_pending());
+
+        reporter
+            .control("connect", &bridge)
+            .expect("connect starts");
+        reporter.handle_result(next_result(&rx));
+        assert!(reporter.authorization_pending());
+        assert_eq!(
+            reporter.take_connect_url().as_deref(),
+            Some("https://www.last.fm/api/auth/?api_key=stub&token=stub-token")
+        );
+        assert_eq!(
+            reporter.status_text(),
+            "Approve Ember in your browser, then click Finish browser authorization."
+        );
+
+        reporter.control("finish", &bridge).expect("finish starts");
+        reporter.handle_result(next_result(&rx));
+        assert!(reporter.connected());
+        assert!(!reporter.authorization_pending());
+        assert_eq!(reporter.account, "desktop-tester");
+        assert_eq!(
+            reporter.status_text(),
+            "Last.fm connected as desktop-tester."
+        );
+
+        reporter
+            .control("disconnect", &bridge)
+            .expect("disconnect starts");
+        reporter.handle_result(next_result(&rx));
+        assert!(!reporter.connected());
+        assert!(!reporter.reauth);
+        assert!(!reporter.authorization_pending());
+        assert!(reporter.account.is_empty());
+        let saved: Outbox =
+            serde_json::from_slice(&fs::read(&outbox).expect("saved outbox after disconnect"))
+                .expect("decode outbox");
+        assert!(saved.account.is_empty());
+        assert!(saved.pending.is_empty());
+
+        reporter.last_status = None;
+        reporter.sample(None, None, 0, 0, false, &bridge);
+        reporter.handle_result(next_result(&rx));
+        assert!(!reporter.connected());
+        assert!(reporter.reauth);
+        assert_eq!(
+            reporter.status_text(),
+            "Last.fm needs reauthorization. Reconnect here or on your iPhone."
+        );
+
+        let log =
+            fs::read_to_string(checkout.path().join("requests.log")).expect("stub request log");
+        let operations = log
+            .lines()
+            .map(|line| {
+                let request: Value = serde_json::from_str(line).expect("stub request JSON");
+                assert_eq!(
+                    request.get("action").and_then(Value::as_str),
+                    Some("lastfm")
+                );
+                request
+                    .get("command")
+                    .and_then(|command| command.get("operation"))
+                    .and_then(Value::as_str)
+                    .expect("operation")
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            operations,
+            ["status", "connect", "finish", "disconnect", "status"]
+        );
+    }
+
+    #[test]
+    fn account_scope_prevents_cross_account_replay() {
+        let checkout = account_stub_checkout();
+        let outbox = checkout.path().join("state/lastfm-outbox.json");
+
+        seed_outbox(&outbox, "", &["orphan"]);
+        let reporter = LastFmReporter::from_outbox(outbox.clone());
+        assert!(reporter.account.is_empty());
+        assert!(reporter.pending.is_empty());
+        let saved = saved_outbox(&outbox);
+        assert!(saved.account.is_empty());
+        assert!(saved.pending.is_empty());
+
+        let (tx, rx) = mpsc::channel();
+        let bridge = BridgeService::new(
+            BridgeConfig::from_root(checkout.path()).expect("stub config"),
+            tx,
+        )
+        .expect("stub bridge service");
+        set_backend_state(checkout.path(), true, true, "account-a");
+        seed_outbox(&outbox, "account-a", &["a-one"]);
+        let mut reporter = LastFmReporter::from_outbox(outbox.clone());
+        reporter.sample(None, None, 0, 0, false, &bridge);
+        reporter.handle_result(next_result(&rx));
+        assert!(reporter.connected());
+        assert_eq!(reporter.account, "account-a");
+        assert_eq!(reporter.pending.len(), 1);
+        assert_eq!(
+            reporter.status_text(),
+            "Last.fm connected as account-a · 1 pending."
+        );
+
+        set_backend_state(checkout.path(), false, true, "");
+        reporter.last_status = None;
+        reporter.sample(None, None, 0, 0, false, &bridge);
+        reporter.handle_result(next_result(&rx));
+        assert!(!reporter.connected());
+        assert!(!reporter.reauth);
+        assert!(!reporter.authorization_pending());
+        assert!(reporter.account.is_empty());
+        assert!(reporter.pending.is_empty());
+        let saved = saved_outbox(&outbox);
+        assert!(saved.account.is_empty());
+        assert!(saved.pending.is_empty());
+
+        set_backend_state(checkout.path(), true, true, "account-a");
+        seed_outbox(&outbox, "account-a", &["a-two"]);
+        let mut reporter = LastFmReporter::from_outbox(outbox.clone());
+        reporter.sample(None, None, 0, 0, false, &bridge);
+        reporter.handle_result(next_result(&rx));
+        assert_eq!(reporter.pending.len(), 1);
+
+        fs::write(checkout.path().join("finish-username"), "account-b").expect("finish username");
+        reporter
+            .control("connect", &bridge)
+            .expect("connect starts");
+        reporter.handle_result(next_result(&rx));
+        assert!(reporter.authorization_pending());
+        assert_eq!(reporter.pending.len(), 1);
+
+        reporter.control("finish", &bridge).expect("finish starts");
+        reporter.handle_result(next_result(&rx));
+        assert!(reporter.connected());
+        assert!(!reporter.authorization_pending());
+        assert_eq!(reporter.account, "account-b");
+        assert!(reporter.pending.is_empty());
+        assert_eq!(reporter.status_text(), "Last.fm connected as account-b.");
+        let saved = saved_outbox(&outbox);
+        assert_eq!(saved.account, "account-b");
+        assert!(saved.pending.is_empty());
+        assert_eq!(
+            stub_operations(checkout.path()),
+            ["status", "status", "status", "connect", "finish"]
+        );
+    }
+
+    #[test]
+    fn finish_without_an_account_name_is_rejected() {
+        let checkout = stub_checkout();
+        let outbox = checkout.path().join("state/lastfm-outbox.json");
+        seed_outbox(&outbox, "account-a", &["a-one"]);
+        let mut reporter = LastFmReporter::from_outbox(outbox);
+        reporter.inflight = Some((Inflight::Finish, 3));
+        reporter.handle_result(JobResult {
+            kind: JobKind::LastFm,
+            seq: 3,
+            result: Ok(BridgePayload::LastFm(serde_json::json!({"ok": true}))),
+        });
+        assert!(!reporter.connected());
+        assert_eq!(
+            reporter.control_error.as_deref(),
+            Some("Last.fm did not return an account name.")
+        );
+        assert_eq!(reporter.account, "account-a");
+        assert_eq!(reporter.pending.len(), 1);
+    }
+
+    #[test]
+    fn authorization_pending_survives_a_restart() {
+        let checkout = stub_checkout();
+        let outbox = checkout.path().join("state/lastfm-outbox.json");
+        seed_outbox(&outbox, "", &[]);
+        let (tx, rx) = mpsc::channel();
+        let bridge = BridgeService::new(
+            BridgeConfig::from_root(checkout.path()).expect("stub config"),
+            tx,
+        )
+        .expect("stub bridge service");
+
+        let mut reporter = LastFmReporter::from_outbox(outbox.clone());
+        reporter.control("connect", &bridge).expect("connect starts");
+        reporter.handle_result(next_result(&rx));
+        assert!(reporter.authorization_pending());
+
+        // A fresh reporter stands in for a restarted app loading the same outbox.
+        let mut restarted = LastFmReporter::from_outbox(outbox.clone());
+        assert!(restarted.authorization_pending());
+        restarted.control("finish", &bridge).expect("finish starts");
+        restarted.handle_result(next_result(&rx));
+        assert!(restarted.connected());
+        assert!(!restarted.authorization_pending());
+        assert_eq!(restarted.account, "desktop-tester");
+        assert!(!saved_outbox(&outbox).awaiting_finish);
+    }
+
+    fn corrupt_backup(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+        fs::read_dir(dir)
+            .expect("outbox dir")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let backup = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("lastfm-outbox.json.corrupt-"));
+                backup.then(|| path)
+            })
+            .next()
+    }
+
+    #[test]
+    fn outbox_save_replaces_the_file_atomically() {
+        let dir = tempfile::tempdir().expect("temp outbox");
+        let outbox = dir.path().join("state/lastfm-outbox.json");
+        seed_outbox(&outbox, "account-a", &["a-one"]);
+        let mut reporter = LastFmReporter::from_outbox(outbox.clone());
+        reporter.pending.push(queued_listen("a-two"));
+        reporter.save();
+
+        let saved = saved_outbox(&outbox);
+        assert_eq!(saved.account, "account-a");
+        assert_eq!(saved.pending.len(), 2);
+        let mut names: Vec<String> = fs::read_dir(outbox.parent().expect("outbox parent"))
+            .expect("outbox dir")
+            .filter_map(|entry| {
+                entry
+                    .ok()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, ["lastfm-outbox.json".to_owned()]);
+    }
+
+    #[test]
+    fn corrupt_outbox_is_quarantined_instead_of_loaded() {
+        let dir = tempfile::tempdir().expect("temp outbox");
+        let outbox = dir.path().join("state/lastfm-outbox.json");
+        let original = b"{\"account\":";
+        fs::create_dir_all(outbox.parent().expect("outbox parent")).expect("state dir");
+        fs::write(&outbox, original).expect("corrupt outbox");
+
+        let reporter = LastFmReporter::from_outbox(outbox.clone());
+        assert!(reporter.account.is_empty());
+        assert!(reporter.pending.is_empty());
+        assert!(!outbox.exists());
+        let backup =
+            corrupt_backup(outbox.parent().expect("outbox parent")).expect("quarantined outbox");
+        assert_eq!(fs::read(&backup).expect("quarantined outbox"), original);
+    }
+
+    #[test]
+    fn oversized_outbox_is_quarantined_instead_of_loaded() {
+        let dir = tempfile::tempdir().expect("temp outbox");
+        let outbox = dir.path().join("state/lastfm-outbox.json");
+        let padding = "x".repeat(MAX_OUTBOX_BYTES as usize);
+        let original =
+            format!("{{\"account\":\"account-a\",\"pending\":[],\"padding\":\"{padding}\"}}");
+        fs::create_dir_all(outbox.parent().expect("outbox parent")).expect("state dir");
+        fs::write(&outbox, original.as_bytes()).expect("oversized outbox");
+
+        let reporter = LastFmReporter::from_outbox(outbox.clone());
+        assert!(reporter.account.is_empty());
+        assert!(reporter.pending.is_empty());
+        assert!(!outbox.exists());
+        assert!(
+            corrupt_backup(outbox.parent().expect("outbox parent")).is_some(),
+            "oversized outbox should be quarantined"
+        );
+    }
 
     #[test]
     fn clock_ignores_pauses_and_seeks() {
@@ -544,10 +1087,12 @@ mod tests {
         let value = Outbox {
             account: "listener".into(),
             pending: vec![event],
+            awaiting_finish: true,
         };
         let encoded = serde_json::to_vec(&value).expect("encode");
         let decoded: Outbox = serde_json::from_slice(&encoded).expect("decode");
         assert_eq!(decoded.account, "listener");
         assert_eq!(decoded.pending.len(), 1);
+        assert!(decoded.awaiting_finish);
     }
 }

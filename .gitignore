@@ -5,7 +5,7 @@ __pycache__/
 .freebuff/
 .venv/
 desktop-rust/target/
-reports/GG-review.*
+reports/
 .cloud-attachments/
 .env.*
 *auth*.json

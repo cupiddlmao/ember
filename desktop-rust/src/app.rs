@@ -2061,7 +2061,10 @@ impl AppUi {
             }
         };
         update(&self.lastfm_connect, !connected);
-        update(&self.lastfm_finish, !connected && self.lastfm.configured());
+        update(
+            &self.lastfm_finish,
+            !connected && self.lastfm.authorization_pending(),
+        );
         update(&self.lastfm_disconnect, connected);
     }
 
