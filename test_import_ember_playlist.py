@@ -181,6 +181,27 @@ class EmberImportTests(unittest.TestCase):
         self.assertEqual(result["revision"], detail["revision"])
         self.assertEqual(result["entries"], detail["entries"])
 
+    def test_add_new_settles_a_saved_append_when_the_put_response_was_lost(self):
+        self.run_import()
+        self.write_report([{"title": "Awake", "artist": "Tycho", "video_id": "dm4tkSNKfFI"},
+                           {"title": "New", "artist": "Artist", "video_id": "AAAAAAAAAAA"}])
+        request = importer.client.request
+        def lost(server, key, method, suffix="", body=None):
+            result = request(server, key, method, suffix, body)
+            if method == "PUT":
+                raise TimeoutError()
+            return result
+        with patch.object(importer.client, "request", side_effect=lost):
+            with self.assertRaises(TimeoutError):
+                importer.add_new(self.source, self.report, "GG", True)
+
+        updated = importer.add_new(self.source, self.report, "GG", True)
+
+        self.assertEqual([e["track"]["id"] for e in updated["entries"]], ["dm4tkSNKfFI", "dm4tkSNKfFI", "AAAAAAAAAAA"])
+        state = importer.client.read_json(
+            importer.client.root() / "imports" / (updated["id"] + "-additions.json"))
+        self.assertTrue(state["complete"])
+
     def test_validation_and_preview_never_send_writes(self):
         with patch.object(importer.client, "request") as request:
             importer.run(self.source, self.report, "GG")

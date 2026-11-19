@@ -113,28 +113,24 @@ def add_new(source, report, title, apply=False):
         raise ValueError("More than one playlist has that title; nothing was added.")
     pid = matches[0]["id"]
     detail = client.request(server, key, "GET", "/" + pid)
-    existing = copy.deepcopy(detail["entries"])
-    remaining = Counter(entry["track"]["id"] for entry in existing)
-    present = {entry["id"] for entry in existing}
+    path = client.root() / "imports" / (pid + "-additions.json")
+    remaining = Counter(entry["track"]["id"] for entry in detail["entries"])
     additions = []
     for row in selected:
         track_id = row["track"]["id"]
         if remaining[track_id] > 0:
             remaining[track_id] -= 1
             continue
-        entry = {"id": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{row['index']}")),
-                 "track": row["track"]}
-        if entry["id"] not in present:
-            additions.append(entry)
-            present.add(entry["id"])
-    print(f"{detail['name']}: {len(additions)} new occurrences; {len(existing)} existing entries kept.")
-    if not additions:
+        additions.append({"id": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{row['index']}")),
+                          "track": row["track"]})
+    print(f"{detail['name']}: {len(additions)} new occurrences; {len(detail['entries'])} existing entries kept.")
+    # A saved receipt still needs settling when the server already has its entries.
+    if not additions and not path.exists():
         print("Nothing new to add; the playlist was not changed.")
         return detail
     if not apply:
         print("Preview only. Add --apply to append these songs.")
         return None
-    path = client.root() / "imports" / (pid + "-additions.json")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -150,7 +146,7 @@ def add_new(source, report, title, apply=False):
             body = {
                 "requestId": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{detail['revision']}")),
                 "expectedRevision": detail["revision"], "name": detail["name"],
-                "entries": entries_metadata(existing + additions),
+                "entries": entries_metadata(detail["entries"] + additions),
             }
             state = {"server": server, "fingerprint": fingerprint, "playlist": pid,
                      "complete": False, "body": body}
@@ -164,7 +160,7 @@ def add_new(source, report, title, apply=False):
             raise ValueError("Playlist changed during verification; add-new receipt retained.")
         state["complete"] = True
         client.private_save(path, state)
-        print(f"Verified {len(additions)} new songs at revision {expected}. Refresh Ember Library.")
+        print(f"Verified {detail['name']} at revision {expected} ({detail['trackCount']} songs). Refresh Ember Library.")
         return detail
 
 
