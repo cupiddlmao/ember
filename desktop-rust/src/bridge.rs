@@ -201,13 +201,26 @@ pub fn sanitize_message(value: &str) -> String {
 #[derive(Serialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum Request<'a> {
-    Search { query: &'a str },
-    Resolve { track: &'a Track },
-    Lyrics { track: &'a Track },
-    Cache { track: &'a Track },
+    Search {
+        query: &'a str,
+    },
+    Resolve {
+        track: &'a Track,
+    },
+    Lyrics {
+        track: &'a Track,
+    },
+    Cache {
+        track: &'a Track,
+    },
     ClearCache,
-    Library { command: &'a Value },
-    LastFm { command: &'a Value },
+    Library {
+        command: &'a Value,
+    },
+    #[serde(rename = "lastfm")]
+    LastFm {
+        command: &'a Value,
+    },
 }
 
 #[derive(Deserialize)]
