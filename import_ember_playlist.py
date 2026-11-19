@@ -5,6 +5,7 @@ import csv
 import fcntl
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 import sys
 import uuid
@@ -101,6 +102,72 @@ def run(source, report, title, apply=False):
         return detail
 
 
+def add_new(source, report, title, apply=False):
+    """Append occurrences the playlist is missing; leave every existing entry alone."""
+    fingerprint, title, selected, _ = prepare(source, report, title)
+    server, key = client.connection()
+    matches = [p for p in client.request(server, key, "GET")["playlists"] if p["name"] == title]
+    if not matches:
+        raise ValueError("No playlist with that title exists; nothing was added.")
+    if len(matches) > 1:
+        raise ValueError("More than one playlist has that title; nothing was added.")
+    pid = matches[0]["id"]
+    detail = client.request(server, key, "GET", "/" + pid)
+    existing = copy.deepcopy(detail["entries"])
+    remaining = Counter(entry["track"]["id"] for entry in existing)
+    present = {entry["id"] for entry in existing}
+    additions = []
+    for row in selected:
+        track_id = row["track"]["id"]
+        if remaining[track_id] > 0:
+            remaining[track_id] -= 1
+            continue
+        entry = {"id": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{row['index']}")),
+                 "track": row["track"]}
+        if entry["id"] not in present:
+            additions.append(entry)
+            present.add(entry["id"])
+    print(f"{detail['name']}: {len(additions)} new occurrences; {len(existing)} existing entries kept.")
+    if not additions:
+        print("Nothing new to add; the playlist was not changed.")
+        return detail
+    if not apply:
+        print("Preview only. Add --apply to append these songs.")
+        return None
+    path = client.root() / "imports" / (pid + "-additions.json")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with path.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if path.exists():
+            state = client.read_json(path)
+            if (state.get("server") != server or state.get("fingerprint") != fingerprint
+                    or state.get("playlist") != pid):
+                raise ValueError("Add-new inputs changed. Retry the original report and title.")
+            if state["complete"]:
+                print("These songs were already added; nothing was changed.")
+                return client.request(server, key, "GET", "/" + pid)
+        else:
+            body = {
+                "requestId": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{detail['revision']}")),
+                "expectedRevision": detail["revision"], "name": detail["name"],
+                "entries": entries_metadata(existing + additions),
+            }
+            state = {"server": server, "fingerprint": fingerprint, "playlist": pid,
+                     "complete": False, "body": body}
+            client.private_save(path, state)
+        receipt = client.request(server, key, "PUT", "/" + pid, state["body"])
+        expected = state["body"]["expectedRevision"] + 1
+        if receipt != {"id": pid, "revision": expected, "deleted": False}:
+            raise ValueError("Add-new receipt could not be verified. Retry the identical command.")
+        detail = client.request(server, key, "GET", "/" + pid)
+        if detail["revision"] != expected or detail["entries"] != state["body"]["entries"]:
+            raise ValueError("Playlist changed during verification; add-new receipt retained.")
+        state["complete"] = True
+        client.private_save(path, state)
+        print(f"Verified {len(additions)} new songs at revision {expected}. Refresh Ember Library.")
+        return detail
+
+
 def album_repair(detail, selected, playlist_id):
     entries = copy.deepcopy(detail["entries"])
     originals = {str(uuid.uuid5(uuid.UUID(playlist_id), str(row["index"]))): row["track"] for row in selected}
@@ -162,9 +229,12 @@ def main():
     parser.add_argument("--title", default="GG")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--repair-albums", action="store_true", help="Fill missing albums on the existing import; preserve all songs and ordering.")
+    parser.add_argument("--add-new", action="store_true", help="Append only occurrences an existing playlist lacks; leave its entries alone.")
     args = parser.parse_args()
     try:
-        action = repair_albums if args.repair_albums else run
+        if args.repair_albums and args.add_new:
+            parser.exit(2, "Choose one of --repair-albums or --add-new.\n")
+        action = repair_albums if args.repair_albums else add_new if args.add_new else run
         action(args.csv, args.report, args.title, args.apply)
     except client.Rejected as error:
         parser.exit(1, f"Ember rejected the request (HTTP {error.status}). Import state retained; no other playlist was overwritten.\n")

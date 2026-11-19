@@ -21,8 +21,17 @@ saved receipt is retried. Keep the private `rust-library/imports` receipt files;
 a completed import never overwrites later edits or recreates a deleted playlist.
 A saved receipt is tied to its report and title, so retry with the identical
 command: a different title is rejected before anything is written. When no receipt
-exists yet, an existing playlist with the same name is left untouched and the
-import is refused; choose another title.
+exists yet, an existing playlist with the same name is left untouched and the import is refused; choose another title.
+
+To add only songs an existing playlist is missing, leaving its entries, edits and
+order untouched (it must already exist under that title):
+
+```bash
+.venv/bin/python import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --title GG --add-new
+```
+
+Add `--apply` to append the missing occurrences; running the same command again
+adds nothing further.
 
 Refresh Library on PC and iPhone after import. On PC, open a playlist and use the
 **⋯ beside Play → Rename playlist / Delete playlist**. On iPhone, open the shared

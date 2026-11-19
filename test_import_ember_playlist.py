@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+import uuid
 from unittest.mock import patch
 
 import import_ember_playlist as importer
@@ -44,6 +45,17 @@ class EmberImportTests(unittest.TestCase):
 
     def run_import(self):
         return importer.run(self.source, self.report, "GG", apply=True)
+
+    def write_report(self, rows):
+        self.source.write_text("title,artist\n" + "".join(f"{r['title']},{r['artist']}\n" for r in rows))
+        self.data = {
+            "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
+            "matches": [{"title": r["title"], "artist": r["artist"], "duration_ms": "",
+                         "approved": True, "video_id": r["video_id"],
+                         "matched_title": r["title"], "matched_artists": [r["artist"]]}
+                        for r in rows],
+        }
+        self.report.write_text(json.dumps(self.data))
 
     def test_committed_timeout_retry_preserves_order_duplicates_and_exact_body(self):
         request = importer.client.request
@@ -130,6 +142,44 @@ class EmberImportTests(unittest.TestCase):
         self.assertEqual([e["id"] for e in updated["entries"]], [e["id"] for e in entries])
         self.assertEqual([e["track"]["album"] for e in updated["entries"]], ["Keep my edit", "Alternate", ""])
         self.assertEqual(importer.repair_albums(self.source, self.report, "GG", True)["revision"], updated["revision"])
+
+    def test_add_new_appends_only_missing_occurrences_and_keeps_existing_entries(self):
+        detail = self.run_import()
+        entries = copy.deepcopy(detail["entries"])
+        entries[0]["track"]["album"] = "Keep my edit"
+        importer.client.request(self.address, TOKEN, "PUT", "/" + detail["id"],
+            {"requestId": str(uuid.uuid4()), "expectedRevision": detail["revision"],
+             "name": "GG", "entries": entries})
+        before = importer.client.request(self.address, TOKEN, "GET", "/" + detail["id"])
+
+        self.write_report([
+            {"title": "Awake", "artist": "Tycho", "video_id": "dm4tkSNKfFI"},
+            {"title": "Awake", "artist": "Tycho", "video_id": "dm4tkSNKfFI"},
+            {"title": "New", "artist": "Artist", "video_id": "AAAAAAAAAAA"},
+        ])
+        updated = importer.add_new(self.source, self.report, "GG", True)
+
+        self.assertEqual(updated["name"], "GG")
+        self.assertEqual(updated["revision"], before["revision"] + 1)
+        self.assertEqual([e["id"] for e in updated["entries"][:2]], [e["id"] for e in before["entries"]])
+        self.assertEqual([e["track"] for e in updated["entries"][:2]], [e["track"] for e in before["entries"]])
+        self.assertEqual(updated["entries"][0]["track"]["album"], "Keep my edit")
+        self.assertEqual(len(updated["entries"]), 3)
+        self.assertEqual(updated["entries"][2]["track"]["id"], "AAAAAAAAAAA")
+
+    def test_add_new_with_nothing_missing_does_not_write(self):
+        detail = self.run_import()
+        request = importer.client.request
+        writes = []
+        def spy(server, key, method, suffix="", body=None):
+            if method != "GET":
+                writes.append(method)
+            return request(server, key, method, suffix, body)
+        with patch.object(importer.client, "request", side_effect=spy):
+            result = importer.add_new(self.source, self.report, "GG", True)
+        self.assertEqual(writes, [])
+        self.assertEqual(result["revision"], detail["revision"])
+        self.assertEqual(result["entries"], detail["entries"])
 
     def test_validation_and_preview_never_send_writes(self):
         with patch.object(importer.client, "request") as request:
