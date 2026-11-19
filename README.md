@@ -23,7 +23,7 @@ The desktop client provides public YouTube Music search, artwork, a persistent q
 - `services.py` — private JSON storage helpers.
 - `playlist_search.py` — local playlist filtering used by the mobile API.
 - `mobile/` — SwiftUI iPhone app and the authenticated backend for search, prepared M4A audio, lyrics and shared playlists.
-- `transfer_playlist.py` / [TRANSFER.md](TRANSFER.md) — optional local CSV helper for reviewing Spotify playlist matches. It is not part of either app.
+- `import_ember_playlist.py` / [TRANSFER.md](TRANSFER.md) — import approved Spotify CSV matches into the shared Ember library, preserving order and duplicates. `transfer_playlist.py` prepares match reports and retains the separate YouTube upload option.
 - [EMBER_PLAYLIST_SYNC_PLAN.md](EMBER_PLAYLIST_SYNC_PLAN.md) — shared-playlist architecture and rollout status.
 
 The GTK Python desktop UI and the abandoned librespot engine prototype have been removed. Rust is the desktop application; the remaining Python modules are the shared music and storage core.
@@ -51,4 +51,3 @@ This uses unofficial ytmusicapi and yt-dlp integrations. Availability, regional/
 The Rust desktop client does not implement MPRIS media controls or Google account sync. Shared playlists are stored by the self-hosted backend, not by a provider account. The iPhone app has its own cache and playback limitations documented in [mobile/README.md](mobile/README.md).
 
 Last.fm scrobbling is available through the shared backend; see [Last.fm setup](mobile/backend/LASTFM.md).
-

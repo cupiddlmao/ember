@@ -147,8 +147,7 @@ are implemented yet; any future migration must first make a consistent backup.
   entry, and handle409 explicitly. No realtime service is necessary.
 - Cache successful reads privately for read-only offline viewing. Do not allow offline
   edits or silently fork a local library in this first version.
-- CSV matching/import is not implemented by these routes. A future importer can use
-  create/PUT after matching and reviewing recordings.
+- `import_ember_playlist.py` imports approved CSV match reports through the existing create route, with private retry receipts. Matching is a separate local step; see `TRANSFER.md`.
 
 ## Checks
 
