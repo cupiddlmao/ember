@@ -1,3 +1,39 @@
+# Import into Ember’s shared playlists
+
+Ember-owned playlists need only your existing Ember server/access key, configured
+under **Ember → Settings** on PC. No Spotify or YouTube login is needed.
+The CSV must first have a complete match report with explicitly approved rows.
+The old matching command below still produces that report; its `upload` command
+writes to YouTube Music, not Ember.
+
+Preview an existing reviewed match report:
+
+```bash
+.venv/bin/python import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --title GG
+```
+
+Add `--apply` to import into the configured shared backend. Approved rows keep
+CSV order, duplicate occurrences, and album names from Album Name/album CSV columns when available. Unapproved/missing matches are omitted.
+The importer checks the CSV fingerprint, validates metadata, saves a private exact
+retry body before writing, and verifies the saved playlist. Interrupted imports can
+be resumed with the identical command. Stable IDs prevent duplicate creation when a
+saved receipt is retried. Keep the private `rust-library/imports` receipt files;
+a completed import never overwrites later edits or recreates a deleted playlist.
+A saved receipt is tied to its report and title, so retry with the identical
+command: a different title is rejected before anything is written. When no receipt
+exists yet, an existing playlist with the same name is left untouched and the
+import is refused; choose another title.
+
+Refresh Library on PC and iPhone after import. On PC, open a playlist and use the
+**⋯ beside Play → Rename playlist / Delete playlist**. On iPhone, open the shared
+playlist and use the **top-right ⋯ → Rename / Delete playlist**. Deletion asks for
+confirmation and removes that shared playlist from all devices. Songs remain
+available in search. Both devices use revisions to reject stale edits.
+The iPhone controls require the shared-library-enabled build; new source must be
+built on macOS and sideloaded before it appears on an older installed version.
+
+---
+
 # Transfer Spotify playlists to YouTube Music
 
 This command-line helper has no imposed 200/500-song cap. YouTube account/rate/playlist limits still apply. It does not download audio. Existing destination playlists are never deleted or replaced. Repeated video IDs are deduplicated, so repeated songs appear once.
@@ -53,3 +89,16 @@ The command prints the destination URL. Paste it into Ember Search. Ember now re
 ## Verification
 
 Four focused tests cover CSVs over500 tracks, recording matching, checkpoint/approval preservation, batched writes and resume. No authenticated playlist creation has been run; your CSV and local account authorization are still needed.
+
+Repair missing album names on an existing Ember import (fills blanks only; preserves
+occurrence IDs, ordering, edits and newly added songs):
+
+```bash
+.venv/bin/python import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --repair-albums
+```
+
+Review the count, then repeat with `--apply`. Repair snapshots and exact retry bodies
+are saved privately beside import receipts. Revision conflicts stop without replacing
+concurrent changes. Existing import retries continue using their original saved bodies.
+New songs added in either app retain the catalog album when supplied; a song with no
+catalog album is not assigned a guessed album.
