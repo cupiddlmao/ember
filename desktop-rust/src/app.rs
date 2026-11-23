@@ -2550,6 +2550,7 @@ impl AppUi {
             .player
             .as_ref()
             .and_then(Player::duration_ms)
+            .filter(|duration| *duration > 0)
             .or_else(|| track.as_ref().map(|track| track.duration_ms))
             .unwrap_or(0);
         self.lastfm.sample(
