@@ -125,6 +125,12 @@ def _search(query):
     client = YTMusic()
     if query.startswith(('https://', 'http://')):
         video, playlist = music_link(query)
+        if video and playlist == 'RDAMVM' + video:
+            data = client.get_watch_playlist(videoId=video, radio=True, limit=25) or {}
+            entries = (data.get('tracks') or [])[:25]
+            tracks, unavailable = _available(entries)
+            return {'kind': 'radio', 'title': 'Song radio', 'tracks': tracks,
+                    'returned': len(entries), 'unavailable': unavailable}
         if playlist and not video:
             data = client.get_playlist(playlist, limit=None) or {}
             entries = data.get('tracks') or []

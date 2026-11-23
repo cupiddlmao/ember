@@ -57,6 +57,23 @@ class MusicTests(unittest.TestCase):
             self.assertEqual([track['id'] for track in playlist['tracks']], ['dm4tkSNKfFI', 'dm4tkSNKfFI'])
             api.get_playlist.assert_called_once_with('PL1234567890', limit=None)
 
+    def test_song_radio_uses_public_related_mix(self):
+        api = MagicMock()
+        api.get_watch_playlist.return_value = {'tracks': [
+            {'videoId': 'dm4tkSNKfFI', 'title': 'Seed'},
+            {'videoId': 'Ux_ZYXUemTU', 'title': 'Related'},
+            {'videoId': None},
+        ]}
+        with patch('music.YTMusic', return_value=api), patch('music.resolve') as resolve:
+            result = search('https://music.youtube.com/watch?v=dm4tkSNKfFI&list=RDAMVMdm4tkSNKfFI')
+            self.assertEqual(result['kind'], 'radio')
+            self.assertEqual(len(result['tracks']), 2)
+            self.assertEqual(result['unavailable'], 1)
+            api.get_watch_playlist.assert_called_once_with(videoId='dm4tkSNKfFI', radio=True, limit=25)
+            resolve.assert_not_called()
+            search('https://music.youtube.com/watch?v=dm4tkSNKfFI')
+            resolve.assert_called_once()
+
     def test_public_playlist_is_cached(self):
         api = MagicMock()
         api.get_playlist.return_value = {
