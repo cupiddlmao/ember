@@ -102,6 +102,46 @@ def run(source, report, title, apply=False):
         return detail
 
 
+def commit_update(server, key, pid, path, fingerprint, build, apply, lock, messages):
+    """Replay or create one saved playlist update, then verify the server's copy.
+
+    `build` runs only when no receipt exists and returns the state to save, so a
+    retry always resends the payload recorded before the first attempt.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with lock.open("a") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        if path.exists():
+            state = client.read_json(path)
+            if state.get("server") != server or state.get("fingerprint") != fingerprint:
+                raise ValueError("Saved receipt belongs to different inputs; retry the original command.")
+            if state["complete"]:
+                print(messages["done"])
+                return client.request(server, key, "GET", "/" + pid)
+            if not apply:
+                print(messages["pending"])
+                return None
+        else:
+            state = build()
+            if state is None:
+                return None
+            if not apply:
+                print(messages["preview"])
+                return None
+            client.private_save(path, state)
+        receipt = client.request(server, key, "PUT", "/" + pid, state["body"])
+        expected = state["body"]["expectedRevision"] + 1
+        if receipt != {"id": pid, "revision": expected, "deleted": False}:
+            raise ValueError("Update receipt could not be verified. Retry the identical command.")
+        detail = client.request(server, key, "GET", "/" + pid)
+        if detail["revision"] != expected or detail["entries"] != state["body"]["entries"]:
+            raise ValueError("Playlist changed during verification; the saved receipt was retained.")
+        state["complete"] = True
+        client.private_save(path, state)
+        print(f"Verified {detail['name']} at revision {expected} ({detail['trackCount']} songs). Refresh Ember Library.")
+        return detail
+
+
 def add_new(source, report, title, apply=False):
     """Append occurrences the playlist is missing; leave every existing entry alone."""
     fingerprint, title, selected, _ = prepare(source, report, title)
@@ -128,40 +168,17 @@ def add_new(source, report, title, apply=False):
     if not additions and not path.exists():
         print("Nothing new to add; the playlist was not changed.")
         return detail
-    if not apply:
-        print("Preview only. Add --apply to append these songs.")
-        return None
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with path.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if path.exists():
-            state = client.read_json(path)
-            if (state.get("server") != server or state.get("fingerprint") != fingerprint
-                    or state.get("playlist") != pid):
-                raise ValueError("Add-new inputs changed. Retry the original report and title.")
-            if state["complete"]:
-                print("These songs were already added; nothing was changed.")
-                return client.request(server, key, "GET", "/" + pid)
-        else:
-            body = {
-                "requestId": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{detail['revision']}")),
-                "expectedRevision": detail["revision"], "name": detail["name"],
-                "entries": entries_metadata(detail["entries"] + additions),
-            }
-            state = {"server": server, "fingerprint": fingerprint, "playlist": pid,
-                     "complete": False, "body": body}
-            client.private_save(path, state)
-        receipt = client.request(server, key, "PUT", "/" + pid, state["body"])
-        expected = state["body"]["expectedRevision"] + 1
-        if receipt != {"id": pid, "revision": expected, "deleted": False}:
-            raise ValueError("Add-new receipt could not be verified. Retry the identical command.")
-        detail = client.request(server, key, "GET", "/" + pid)
-        if detail["revision"] != expected or detail["entries"] != state["body"]["entries"]:
-            raise ValueError("Playlist changed during verification; add-new receipt retained.")
-        state["complete"] = True
-        client.private_save(path, state)
-        print(f"Verified {detail['name']} at revision {expected} ({detail['trackCount']} songs). Refresh Ember Library.")
-        return detail
+
+    def build():
+        return {"server": server, "fingerprint": fingerprint, "playlist": pid, "complete": False,
+                "body": {"requestId": str(uuid.uuid5(uuid.UUID(pid), f"add:{fingerprint}:{detail['revision']}")),
+                         "expectedRevision": detail["revision"], "name": detail["name"],
+                         "entries": entries_metadata(detail["entries"] + additions)}}
+
+    return commit_update(server, key, pid, path, fingerprint, build, apply, path.with_suffix(".lock"),
+                         {"done": "These songs were already added; nothing was changed.",
+                          "preview": "Preview only. Add --apply to append these songs.",
+                          "pending": "Pending append retained; add --apply to retry its exact payload."})
 
 
 def album_repair(detail, selected, playlist_id):
@@ -182,40 +199,21 @@ def repair_albums(source, report, title, apply=False):
     server, key = client.connection()
     pid = str(uuid.uuid5(uuid.NAMESPACE_URL, server + "/csv/" + fingerprint))
     path = client.root() / "imports" / (pid + "-albums.json")
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (client.root() / "library.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if path.exists():
-            state = client.read_json(path)
-            if state["server"] != server or state["fingerprint"] != fingerprint:
-                raise ValueError("Album repair inputs changed.")
-            if state["complete"]:
-                print("Album repair already completed; later edits were left untouched.")
-                return client.request(server, key, "GET", "/" + pid)
-        else:
-            before = client.request(server, key, "GET", "/" + pid)
-            entries, changed = album_repair(before, selected, pid)
-            print(f"{before['name']}: fill {changed} missing album names; preserve all {len(entries)} occurrences.")
-            if not apply or not changed:
-                return before
-            state = {"server": server, "fingerprint": fingerprint, "complete": False,
-                     "before": before, "body": {"requestId": str(uuid.uuid4()),
-                        "expectedRevision": before["revision"], "name": before["name"], "entries": entries}}
-            client.private_save(path, state)
-        if not apply:
-            print("Pending album repair retained; add --apply to retry its exact payload.")
+
+    def build():
+        before = client.request(server, key, "GET", "/" + pid)
+        entries, changed = album_repair(before, selected, pid)
+        print(f"{before['name']}: fill {changed} missing album names; preserve all {len(entries)} occurrences.")
+        if not changed:
             return None
-        receipt = client.request(server, key, "PUT", "/" + pid, state["body"])
-        expected = state["body"]["expectedRevision"] + 1
-        if receipt != {"id": pid, "revision": expected, "deleted": False}:
-            raise ValueError("Album repair receipt could not be verified.")
-        detail = client.request(server, key, "GET", "/" + pid)
-        if detail["revision"] != expected or detail["entries"] != state["body"]["entries"]:
-            raise ValueError("Playlist changed during verification; repair receipt retained.")
-        state["complete"] = True
-        client.private_save(path, state)
-        print(f"Verified album repair at revision {expected}. Refresh Ember Library.")
-        return detail
+        return {"server": server, "fingerprint": fingerprint, "complete": False,
+                "before": before, "body": {"requestId": str(uuid.uuid4()),
+                    "expectedRevision": before["revision"], "name": before["name"], "entries": entries}}
+
+    return commit_update(server, key, pid, path, fingerprint, build, apply, client.root() / "library.lock",
+                         {"done": "Album repair already completed; later edits were left untouched.",
+                          "preview": "Preview only. Add --apply to fill the missing albums.",
+                          "pending": "Pending album repair retained; add --apply to retry its exact payload."})
 
 
 def main():
