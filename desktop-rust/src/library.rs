@@ -155,12 +155,21 @@ pub struct LibraryPane {
     discard: gtk4::Button,
     edit: gtk4::Box,
     offset: usize,
+    pending: Option<Value>,
     popup: Option<(gtk4::Window, gtk4::Label)>,
 }
 
 fn button(text: &str) -> gtk4::Button {
     gtk4::Button::with_label(text)
 }
+fn song_count(count: usize) -> String {
+    if count == 1 {
+        "1 song".to_owned()
+    } else {
+        format!("{count} songs")
+    }
+}
+
 fn clear(container: &gtk4::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
@@ -235,6 +244,7 @@ impl LibraryPane {
             discard: discard.clone(),
             edit,
             offset: 0,
+            pending: None,
             popup: None,
         }));
         let weak = Rc::downgrade(&pane);
@@ -282,10 +292,12 @@ impl LibraryPane {
             return;
         };
         if p.busy {
+            // A refresh or save is in flight. Keep the latest command and run it when
+            // that request finishes instead of dropping the click on the floor.
+            p.pending = Some(command);
             return;
         }
         p.busy = true;
-        p.page.set_sensitive(false);
         if let Some((window, status)) = &p.popup {
             window.set_sensitive(false);
             status.set_text("Saving…");
@@ -293,16 +305,14 @@ impl LibraryPane {
         p.status.set_text("Loading shared library…");
         if p.tx.send(Action::Request(command)).is_err() {
             p.busy = false;
-            p.page.set_sensitive(true);
             p.status.set_text("Library worker unavailable.");
         }
     }
 
     pub fn apply(pane: &Rc<RefCell<Self>>, result: Result<LibraryState, String>) {
-        {
+        let queued = {
             let mut p = pane.borrow_mut();
             p.busy = false;
-            p.page.set_sensitive(true);
             match result {
                 Ok(state) => {
                     p.state = state;
@@ -324,8 +334,12 @@ impl LibraryPane {
                 window.set_sensitive(true);
                 status.set_text(&p.state.error);
             }
-        }
+            p.pending.take()
+        };
         Self::render(pane);
+        if let Some(command) = queued {
+            Self::request(pane, command);
+        }
     }
 
     pub fn reset(pane: &Rc<RefCell<Self>>) {
@@ -353,19 +367,31 @@ impl LibraryPane {
         clear(&p.lists);
         clear(&p.songs);
         for playlist in &p.state.playlists {
-            let b = button(&format!(
-                "{}   ·   {} songs",
-                playlist.name, playlist.track_count
-            ));
+            let row = gtk4::Button::new();
+            row.add_css_class("list-row");
+            row.set_halign(gtk4::Align::Fill);
+            if p.state.detail.as_ref().is_some_and(|detail| detail.id == playlist.id) {
+                row.add_css_class("current");
+            }
+            let text = gtk4::Label::new(Some(&format!(
+                "{}   ·   {}",
+                playlist.name,
+                song_count(playlist.track_count)
+            )));
+            text.set_xalign(0.0);
+            text.set_hexpand(true);
+            text.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            row.set_child(Some(&text));
+            row.set_tooltip_text(Some(&format!("Open {}", playlist.name)));
             let id = playlist.id.clone();
             let weak = Rc::downgrade(pane);
-            b.connect_clicked(move |_| {
+            row.connect_clicked(move |_| {
                 if let Some(p) = weak.upgrade() {
                     p.borrow_mut().offset = 0;
                     Self::request(&p, json!({"operation":"load","id":id}));
                 }
             });
-            p.lists.append(&b);
+            p.lists.append(&row);
         }
         let Some(detail) = &p.state.detail else {
             return;
@@ -377,11 +403,16 @@ impl LibraryPane {
                 .filter_map(|e| e.track.playable().ok())
                 .collect(),
         );
-        let heading = gtk4::Label::new(Some(&format!("{} — {} songs", detail.name, tracks.len())));
+        let heading = gtk4::Label::new(Some(&format!(
+            "{} — {}",
+            detail.name,
+            song_count(tracks.len())
+        )));
         heading.set_xalign(0.0);
         heading.add_css_class("section-title");
         p.songs.append(&heading);
         let play = button("Play all");
+        play.set_halign(gtk4::Align::Start);
         play.set_sensitive(!tracks.is_empty());
         let tx = p.tx.clone();
         let all = tracks.clone();
@@ -400,6 +431,7 @@ impl LibraryPane {
             ));
             play.set_hexpand(true);
             play.set_halign(gtk4::Align::Fill);
+            play.add_css_class("list-row");
             if let Some(label) = play.child().and_downcast::<gtk4::Label>() {
                 label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
                 label.set_max_width_chars(55);
