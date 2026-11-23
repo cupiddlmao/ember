@@ -95,6 +95,36 @@ def entries_metadata(value):
     return entries
 
 
+def backup_sqlite_databases(directory: Path, destination: Path) -> list[Path]:
+    """Consistently back up every SQLite database in a directory.
+
+    The playlist library and the Last.fm account share one volume, so a backup that
+    copies only `playlists.sqlite3` silently drops the Last.fm session and its
+    pending outbox. SQLite's backup API includes committed WAL data, and an existing
+    file is never overwritten.
+    """
+    directory, destination = Path(directory), Path(destination)
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(destination, 0o700)
+    written = []
+    for source_path in sorted(directory.glob("*.sqlite3")):
+        if not source_path.is_file():
+            continue
+        target_path = destination / source_path.name
+        handle = os.open(target_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(handle)
+        os.chmod(target_path, 0o600)
+        try:
+            with closing(sqlite3.connect(source_path)) as source, \
+                    closing(sqlite3.connect(target_path)) as target:
+                source.backup(target)
+        except Exception:
+            target_path.unlink(missing_ok=True)
+            raise
+        written.append(target_path)
+    return written
+
+
 class LibraryStore:
     def __init__(self, directory: Path):
         directory = Path(directory)

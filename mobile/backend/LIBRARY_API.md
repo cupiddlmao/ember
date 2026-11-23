@@ -117,43 +117,29 @@ Tailscale `/ember` proxy. Compose 0.3.0 defaults to the user's loopback host por
 `EMBER_HOST_PORT` can preserve another existing host mapping. Container port stays8080.
 No deployment or token rotation is required to develop/test this locally.
 
-For a live consistent backup, use SQLite's backup API rather than copying only the
-main DB while WAL is active. Example from `mobile/backend` on the server:
+For a live consistent backup, use SQLite's backup API rather than copying the files.
+The library volume holds two databases: `playlists.sqlite3` (shared playlists) and
+`lastfm.sqlite3` (the Last.fm session and its scrobble outbox). Back up both, or a
+restore silently loses the Last.fm connection and any queued listens:
 
 ```bash
 docker compose -p ember-mobile exec -T api python - <<'PYBACKUP'
 from pathlib import Path
-from mobile.backend.library_store import LibraryStore
-LibraryStore(Path('/var/lib/ember/library')).backup(Path('/var/lib/ember/library/backup-before-upgrade.sqlite3'))
+from mobile.backend.library_store import backup_sqlite_databases
+written = backup_sqlite_databases(Path('/var/lib/ember/library'),
+                                  Path('/var/lib/ember/library/backups/2026-11-23'))
+print('backed up:', *[path.name for path in written])
 PYBACKUP
 ```
 
-This refuses to overwrite an existing backup; use a fresh dated filename. Copy the
-backup off the volume too (a same-volume copy cannot survive volume deletion).
-To restore, stop the API, preserve the current DB/WAL/SHM as a rollback copy, restore
-the backup as `playlists.sqlite3` in the library volume with UID10001 ownership and
-0600 permissions, remove old WAL/SHM from the restored location, then start the API.
-Never restore over a running database. Current schema version is1. Unknown versions
-or unrecognized existing databases stop startup without migrating them. No upgrades
-are implemented yet; any future migration must first make a consistent backup.
+It copies every `*.sqlite3` file, includes committed WAL data and refuses to overwrite
+an existing file, so use a fresh dated directory. Copy the backups off the volume too:
+a same-volume copy cannot survive volume deletion. To restore, stop the API, preserve
+the current files as a rollback copy, restore `playlists.sqlite3` (and `lastfm.sqlite3`
+if you are recovering Last.fm) into the library volume with UID 10001 ownership and
+0600 permissions, remove old WAL/SHM files from the restored location, then start the
+API. Never restore over a running database.
 
-## Client integration status
-
-- Rust now has server/key settings (private owner-only file), native library management and local desktop audio resolution. Use the same existing server/key as the phone.
-- SwiftUI list/detail/create/rename/delete/reorder and Add to playlist are implemented in source using this API. Build/device checks remain pending. Rust library integration is also implemented locally; installation and deployed-device validation remain pending.
-- Map canonical track metadata and keep separate occurrence IDs. Treat provider
-  bookmarks as a separate feature; only an explicit import copies membership.
-- Save success only after acknowledgment, refresh after mutations/foreground/library
-  entry, and handle409 explicitly. No realtime service is necessary.
-- Cache successful reads privately for read-only offline viewing. Do not allow offline
-  edits or silently fork a local library in this first version.
-- `import_ember_playlist.py` imports approved CSV match reports through the existing create route, with private retry receipts. Matching is a separate local step; see `TRANSFER.md`.
-
-## Checks
-
-```bash
-.venv/bin/python -m unittest mobile.backend.tests.test_library_store mobile.backend.tests.test_http_api
-```
-
-Tests use temporary directories and local ephemeral HTTP servers with fake music
-services. No provider login, external network, real token or live library is used.
+Current schema version is 1. Unknown versions or unrecognized existing databases stop
+startup without migrating them. No upgrades are implemented yet; any future migration
+must first make a consistent backup.

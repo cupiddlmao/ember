@@ -1,12 +1,13 @@
 """Persistent, two-client playlist edits without provider/network access."""
 import concurrent.futures
+import sqlite3
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from mobile.backend.library_store import LibraryError, LibraryStore
+from mobile.backend.library_store import LibraryError, LibraryStore, backup_sqlite_databases
 
 
 def uid():
@@ -139,3 +140,27 @@ class LibraryConfigurationTests(unittest.TestCase):
             for library in (cache, cache / "library"):
                 with self.assertRaises(ConfigurationError):
                     Settings(token="test", cache_dir=cache, library_dir=library)
+
+
+class LibraryBackupTests(unittest.TestCase):
+    def test_backup_covers_every_database_in_the_library(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "library"
+        store = LibraryStore(root)
+        playlist_id = uid()
+        store.mutate("POST", None, {"id": playlist_id, "requestId": uid(),
+                                     "name": "GG", "entries": [entry()]})
+        with sqlite3.connect(root / "lastfm.sqlite3") as db:
+            db.execute("CREATE TABLE account (id INTEGER PRIMARY KEY, session TEXT)")
+            db.execute("INSERT INTO account VALUES (1, 'session-key')")
+        (root / "playlists.v0.example.backup").write_text("not a database")
+        destination = root / "backups" / "2026-11-23"
+        written = backup_sqlite_databases(root, destination)
+        self.assertEqual(sorted(path.name for path in written),
+                         ["lastfm.sqlite3", "playlists.sqlite3"])
+        with sqlite3.connect(destination / "lastfm.sqlite3") as db:
+            self.assertEqual(db.execute("SELECT session FROM account").fetchone()[0], "session-key")
+        self.assertEqual(LibraryStore(destination).get(playlist_id)["trackCount"], 1)
+        with self.assertRaises(FileExistsError):
+            backup_sqlite_databases(root, destination)
