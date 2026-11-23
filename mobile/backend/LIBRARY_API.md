@@ -1,6 +1,10 @@
 # Ember-owned playlist library — backend 0.3.0
 
-Implemented locally; not deployed. SwiftUI integration is implemented in source (macOS build/device checks pending); Rust integration is implemented locally (native interaction checks pending).
+Deployed and serving 0.3.0 at the existing `/ember` address: `GET /v1/health` returns
+`{"status": "ok", "version": "0.3.0"}`, and the library and Last.fm routes answer with the
+existing access key. SwiftUI integration is implemented in source (macOS build/device checks
+pending); Rust integration is implemented and works against the live server (native
+interaction checks pending).
 This is one private library shared by devices holding the existing Ember bearer key.
 There are no user accounts, provider logins, provider writes or network calls in the
 library store. Existing `/v1/playlists/...` public-provider preview routes are unchanged.
@@ -9,7 +13,10 @@ still depends on the recording/provider.
 
 ## Routes
 
-All routes require `Authorization: Bearer <existing Ember key>`, including reads.
+All routes require `Authorization: Bearer <existing Ember key>`, including reads. The key is
+checked before routing, so an unauthenticated request gets `401 unauthorized` on every path,
+existent or not: a 401 proves the server is up and protected, never that a route exists.
+Confirm a route by calling it with the key.
 Both `/v1/library/...` and `/ember/v1/library/...` work. JSON replies are `no-store`.
 Writes require `Content-Type: application/json` and a single `Content-Length` (no
 chunked transfer). Maximum body is 8 MiB and reading it has a 10-second deadline.
@@ -152,7 +159,7 @@ beside it. Any schema change must add a step to `_MIGRATIONS` in
 ## Client integration status
 
 - Rust now has server/key settings (private owner-only file), native library management and local desktop audio resolution. Use the same existing server/key as the phone.
-- SwiftUI list/detail/create/rename/delete/reorder and Add to playlist are implemented in source using this API. Build/device checks remain pending. Rust library integration is also implemented locally; installation and deployed-device validation remain pending.
+- SwiftUI list/detail/create/rename/delete/reorder and Add to playlist are implemented in source using this API. Build/device checks remain pending. Rust library integration is implemented and exercised against the live 0.3.0 server (shared playlists render in the desktop UI); installing the desktop app as a bundle remains pending.
 - Map canonical track metadata and keep separate occurrence IDs. Treat provider
   bookmarks as a separate feature; only an explicit import copies membership.
 - Save success only after acknowledgment, refresh after mutations/foreground/library

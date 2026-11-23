@@ -1,8 +1,10 @@
 # Ember Mobile — native client and private backend
 
-Backend 0.3.0 adds [Ember-owned shared playlists](backend/LIBRARY_API.md).
+Backend 0.3.0 adds [Ember-owned shared playlists](backend/LIBRARY_API.md). The backend is
+deployed at the existing `/ember` address and reports 0.3.0 from `GET /v1/health`.
 SwiftUI shared-library integration is implemented in source; the macOS build and
-iPhone checks remain pending. Desktop integration is implemented in `desktop-rust/`.
+iPhone checks remain pending. Desktop integration is implemented and working against
+that server in `desktop-rust/`.
 Existing provider playlist bookmarks stay unchanged. No provider account is needed
 for the new API.
 
