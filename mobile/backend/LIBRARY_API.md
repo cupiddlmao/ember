@@ -140,6 +140,32 @@ if you are recovering Last.fm) into the library volume with UID 10001 ownership 
 0600 permissions, remove old WAL/SHM files from the restored location, then start the
 API. Never restore over a running database.
 
-Current schema version is 1. Unknown versions or unrecognized existing databases stop
-startup without migrating them. No upgrades are implemented yet; any future migration
-must first make a consistent backup.
+The playlist schema is `PRAGMA user_version` 1. A database written by a newer Ember, an
+unversioned database that already holds tables, or a version with no declared migration
+stops startup without being altered. Upgrades apply one declared step at a time, each
+in its own transaction: a step that fails is rolled back, the database stays at the
+version it already reached, and the next start resumes from there. The first step that
+changes an existing database also writes a `playlists.v<N>.<timestamp>.backup` copy
+beside it. Any schema change must add a step to `_MIGRATIONS` in
+`mobile/backend/library_store.py` and raise `SCHEMA_VERSION`.
+
+## Client integration status
+
+- Rust now has server/key settings (private owner-only file), native library management and local desktop audio resolution. Use the same existing server/key as the phone.
+- SwiftUI list/detail/create/rename/delete/reorder and Add to playlist are implemented in source using this API. Build/device checks remain pending. Rust library integration is also implemented locally; installation and deployed-device validation remain pending.
+- Map canonical track metadata and keep separate occurrence IDs. Treat provider
+  bookmarks as a separate feature; only an explicit import copies membership.
+- Save success only after acknowledgment, refresh after mutations/foreground/library
+  entry, and handle409 explicitly. No realtime service is necessary.
+- Cache successful reads privately for read-only offline viewing. Do not allow offline
+  edits or silently fork a local library in this first version.
+- `import_ember_playlist.py` imports approved CSV match reports through the existing create route, with private retry receipts. Matching is a separate local step; see `TRANSFER.md`.
+
+## Checks
+
+```bash
+.venv/bin/python -m unittest mobile.backend.tests.test_library_store mobile.backend.tests.test_http_api
+```
+
+Tests use temporary directories and local ephemeral HTTP servers with fake music
+services. No provider login, external network, real token or live library is used.

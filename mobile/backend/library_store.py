@@ -21,6 +21,28 @@ TRACK_FIELDS = {"id", "title", "artist", "album", "durationMs", "artworkUrl", "s
 ARTWORK_HOSTS = {"i.ytimg.com", "img.youtube.com", "yt3.ggpht.com", "yt3.googleusercontent.com"}
 ARTWORK_HOSTS.update(f"lh{i}.googleusercontent.com" for i in range(3, 7))
 
+SCHEMA_VERSION = 1
+
+# Each entry upgrades a database from its key to the next version. A step is either
+# a SQL statement or a callable taking the connection. Raise SCHEMA_VERSION and append
+# a step when the schema changes; never edit a step that has already shipped.
+_MIGRATIONS: dict[int, tuple] = {
+    0: (
+        """CREATE TABLE playlists (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            deleted INTEGER NOT NULL DEFAULT 0)""",
+        """CREATE TABLE entries (
+            playlist_id TEXT NOT NULL REFERENCES playlists(id),
+            id TEXT NOT NULL, position INTEGER NOT NULL, track TEXT NOT NULL,
+            PRIMARY KEY(playlist_id, id), UNIQUE(playlist_id, position))""",
+        """CREATE TABLE receipts (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id TEXT UNIQUE NOT NULL, fingerprint TEXT NOT NULL,
+            status INTEGER NOT NULL, result TEXT NOT NULL)""",
+    ),
+}
+
 
 class LibraryError(ValueError):
     def __init__(self, status: int, code: str, message: str):
@@ -135,31 +157,59 @@ class LibraryStore:
         os.close(fd)
         os.chmod(self.path, 0o600)
         with closing(self._connect()) as db:
-            version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
-                raise RuntimeError("Unsupported playlist schema; restore a compatible backup or upgrade Ember.")
-            if version == 0:
-                if db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
-                    raise RuntimeError("Unrecognized playlist database; refusing to alter it.")
-                db.executescript("""
-                    BEGIN IMMEDIATE;
-                    CREATE TABLE IF NOT EXISTS playlists (
-                        id TEXT PRIMARY KEY, name TEXT NOT NULL, revision INTEGER NOT NULL,
-                        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-                        deleted INTEGER NOT NULL DEFAULT 0);
-                    CREATE TABLE IF NOT EXISTS entries (
-                        playlist_id TEXT NOT NULL REFERENCES playlists(id),
-                        id TEXT NOT NULL, position INTEGER NOT NULL, track TEXT NOT NULL,
-                        PRIMARY KEY(playlist_id, id), UNIQUE(playlist_id, position));
-                    CREATE TABLE IF NOT EXISTS receipts (
-                        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                        request_id TEXT UNIQUE NOT NULL, fingerprint TEXT NOT NULL,
-                        status INTEGER NOT NULL, result TEXT NOT NULL);
-                    PRAGMA user_version=1;
-                    COMMIT;
-                """)
+            self._upgrade(db)
             db.execute("PRAGMA journal_mode=WAL")
         os.chmod(self.path, 0o600)
+
+    def _upgrade(self, db):
+        """Bring the database to SCHEMA_VERSION, committing one step at a time.
+
+        A failing step rolls back on its own, so the database stays at the version it
+        already reached and the next start resumes from there. A database written by a
+        newer Ember, an unversioned database that already holds tables, or a version
+        with no declared step is refused rather than altered. The first upgrade takes a
+        consistent backup next to the database before it changes anything.
+        """
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            raise RuntimeError(
+                "This playlist database was created by a newer Ember; upgrade the server instead.")
+        if version == 0 and db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
+            raise RuntimeError("Unrecognized playlist database; refusing to alter it.")
+        backup = None
+        while version < SCHEMA_VERSION:
+            steps = _MIGRATIONS.get(version)
+            if not steps:
+                raise RuntimeError(
+                    f"No playlist schema migration from version {version} to {version + 1}; "
+                    "restore a compatible backup or upgrade Ember.")
+            backup = backup or (self._pre_upgrade_backup(version) if version else None)
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                for step in steps:
+                    if callable(step):
+                        step(db)
+                    else:
+                        db.execute(step)
+                db.execute(f"PRAGMA user_version={version + 1}")
+                db.execute("COMMIT")
+            except Exception as error:
+                try:
+                    db.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                kept = f"; {backup.name} keeps the pre-upgrade copy" if backup else ""
+                raise RuntimeError(
+                    f"Playlist schema upgrade from version {version} to version {version + 1} "
+                    f"failed and was rolled back{kept}."
+                ) from error
+            version += 1
+
+    def _pre_upgrade_backup(self, version):
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        destination = self.path.parent / f"playlists.v{version}.{stamp}.backup"
+        self.backup(destination)
+        return destination
 
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=5)

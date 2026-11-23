@@ -132,14 +132,74 @@ class LibraryTests(unittest.TestCase):
             LibraryStore(backup_dir)
 
 
-class LibraryConfigurationTests(unittest.TestCase):
-    def test_library_must_be_outside_audio_cache(self):
-        from mobile.backend.config import ConfigurationError, Settings
-        with tempfile.TemporaryDirectory() as directory:
-            cache = Path(directory) / "cache"
-            for library in (cache, cache / "library"):
-                with self.assertRaises(ConfigurationError):
-                    Settings(token="test", cache_dir=cache, library_dir=library)
+class SchemaUpgradeTests(unittest.TestCase):
+    """A schema bump must upgrade existing data instead of refusing to start."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name) / "library"
+        self.store = LibraryStore(self.root)
+        self.id = uid()
+        self.store.mutate("POST", None, {"id": self.id, "requestId": uid(),
+                                          "name": "GG", "entries": [entry()]})
+
+    def version(self, path=None):
+        with sqlite3.connect(path or self.root / "playlists.sqlite3") as db:
+            return db.execute("PRAGMA user_version").fetchone()[0]
+
+    def test_upgrade_applies_ordered_steps_and_keeps_a_pre_upgrade_backup(self):
+        def add_notes(db):
+            db.execute("ALTER TABLE playlists ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+        steps = {1: (add_notes,), 2: ("CREATE TABLE radio_seeds (id TEXT PRIMARY KEY)",)}
+        with patch("mobile.backend.library_store.SCHEMA_VERSION", 3), \
+                patch("mobile.backend.library_store._MIGRATIONS", steps):
+            upgraded = LibraryStore(self.root)
+            self.assertEqual(self.version(), 3)
+            self.assertEqual(upgraded.get(self.id)["trackCount"], 1)
+            backups = list(self.root.glob("playlists.v1.*.backup"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(self.version(backups[0]), 1)
+            LibraryStore(self.root)
+            self.assertEqual(len(list(self.root.glob("playlists.v*.backup"))), 1)
+        with sqlite3.connect(self.root / "playlists.sqlite3") as db:
+            self.assertIn("notes", [row[1] for row in db.execute("PRAGMA table_info(playlists)")])
+            self.assertIn("radio_seeds", [row[0] for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")])
+
+    def test_failed_step_rolls_back_and_a_fixed_retry_resumes(self):
+        broken = {1: ("CREATE TABLE good (id TEXT)",), 2: ("CREATE TABLE bad (",)}
+        with patch("mobile.backend.library_store.SCHEMA_VERSION", 3), \
+                patch("mobile.backend.library_store._MIGRATIONS", broken):
+            with self.assertRaises(RuntimeError) as error:
+                LibraryStore(self.root)
+        self.assertIn("version 2 to version 3", str(error.exception))
+        self.assertEqual(self.version(), 2)
+        self.assertEqual(self.store.get(self.id)["trackCount"], 1)
+        with sqlite3.connect(self.root / "playlists.sqlite3") as db:
+            tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        self.assertIn("good", tables)
+        self.assertNotIn("bad", tables)
+        with patch("mobile.backend.library_store.SCHEMA_VERSION", 3), \
+                patch("mobile.backend.library_store._MIGRATIONS",
+                      {2: ("CREATE TABLE bad (id TEXT)",)}):
+            LibraryStore(self.root)
+        self.assertEqual(self.version(), 3)
+
+    def test_missing_step_newer_and_unversioned_databases_are_refused(self):
+        with patch("mobile.backend.library_store.SCHEMA_VERSION", 2), \
+                patch("mobile.backend.library_store._MIGRATIONS", {}):
+            with self.assertRaises(RuntimeError):
+                LibraryStore(self.root)
+        self.assertEqual(self.version(), 1)
+        self.assertEqual(self.store.get(self.id)["trackCount"], 1)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        stranger = Path(temporary.name)
+        with sqlite3.connect(stranger / "playlists.sqlite3") as db:
+            db.execute("CREATE TABLE mystery (x)")
+        with self.assertRaises(RuntimeError):
+            LibraryStore(stranger)
 
 
 class LibraryBackupTests(unittest.TestCase):
@@ -164,3 +224,13 @@ class LibraryBackupTests(unittest.TestCase):
         self.assertEqual(LibraryStore(destination).get(playlist_id)["trackCount"], 1)
         with self.assertRaises(FileExistsError):
             backup_sqlite_databases(root, destination)
+
+
+class LibraryConfigurationTests(unittest.TestCase):
+    def test_library_must_be_outside_audio_cache(self):
+        from mobile.backend.config import ConfigurationError, Settings
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "cache"
+            for library in (cache, cache / "library"):
+                with self.assertRaises(ConfigurationError):
+                    Settings(token="test", cache_dir=cache, library_dir=library)
