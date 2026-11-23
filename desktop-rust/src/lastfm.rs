@@ -3,6 +3,7 @@ use crate::model::Track;
 use gtk4::glib;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use soup::prelude::*;
 use std::fs;
 use std::fs::File;
 use std::io::{self, Write};
@@ -314,6 +315,11 @@ impl LastFmReporter {
         }
     }
 
+    /// A seek or other position jump must not be counted as listening time.
+    pub fn break_continuity(&mut self) {
+        self.clock.break_continuity();
+    }
+
     pub fn handle_result(&mut self, job: JobResult) {
         let Some((kind, seq)) = self.inflight else {
             return;
@@ -592,6 +598,112 @@ fn uuid_like() -> String {
     )
 }
 
+/// Song radio is a read-only backend query, so it talks to the server directly
+/// instead of going through the music bridge's reporting outbox.
+fn connection() -> Result<(String, String), String> {
+    let (server, key) = crate::library::connection_fields();
+    let uri = glib::Uri::parse(&server, glib::UriFlags::NONE)
+        .map_err(|_| "Save your Ember server connection first.")?;
+    let local = matches!(
+        uri.host().as_deref(),
+        Some("localhost" | "127.0.0.1" | "::1")
+    );
+    if key.is_empty()
+        || uri.userinfo().is_some()
+        || uri.query().is_some()
+        || uri.fragment().is_some()
+        || !(uri.scheme() == "https" || (uri.scheme() == "http" && local))
+    {
+        return Err("Use HTTPS for the Ember server connection.".into());
+    }
+    Ok((server.trim_end_matches('/').to_owned(), key))
+}
+
+async fn request(server: &str, key: &str, body: &Value) -> Result<Value, String> {
+    let session = soup::Session::new();
+    let radio = body["action"].as_str() == Some("radio");
+    session.set_timeout(if radio { 45 } else { 15 });
+    let message = soup::Message::new("POST", &format!("{server}/v1/lastfm"))
+        .map_err(|_| "Invalid server address.")?;
+    message.set_flags(soup::MessageFlags::NO_REDIRECT);
+    message
+        .request_headers()
+        .unwrap()
+        .append("Authorization", &format!("Bearer {key}"));
+    let bytes = glib::Bytes::from_owned(serde_json::to_vec(body).map_err(|_| "Invalid request.")?);
+    message.set_request_body_from_bytes(Some("application/json"), Some(&bytes));
+    let stream = session
+        .send_future(&message, glib::Priority::DEFAULT)
+        .await
+        .map_err(|_| "Ember server is unavailable.")?;
+    let mut data = Vec::new();
+    loop {
+        let chunk = stream
+            .read_bytes_future(4096, glib::Priority::DEFAULT)
+            .await
+            .map_err(|_| "Could not read server response.")?;
+        if chunk.is_empty() {
+            break;
+        }
+        data.extend_from_slice(chunk.as_ref());
+        if data.len() > if radio { 65536 } else { 16384 } {
+            return Err("Server response is too large.".into());
+        }
+    }
+    let value: Value = serde_json::from_slice(&data).map_err(|_| "Invalid server response.")?;
+    if message.status() != soup::Status::Ok {
+        return Err(format!(
+            "{}: {}",
+            if message.status() == soup::Status::BadRequest {
+                "HTTP 400"
+            } else {
+                "Last.fm"
+            },
+            value["error"]["message"]
+                .as_str()
+                .unwrap_or("Last.fm request failed.")
+                .chars()
+                .take(300)
+                .collect::<String>()
+        ));
+    }
+    Ok(value)
+}
+
+pub async fn song_radio(seed: &Track) -> Result<Vec<Track>, String> {
+    let (server, key) = connection()?;
+    let value = request(
+        &server,
+        &key,
+        &json!({
+            "action": "radio", "title": seed.name, "artist": seed.artist_line()
+        }),
+    )
+    .await?;
+    radio_mix(value, seed)
+}
+
+fn radio_mix(value: Value, seed: &Track) -> Result<Vec<Track>, String> {
+    let rows = value
+        .get("tracks")
+        .and_then(Value::as_array)
+        .filter(|rows| rows.len() <= 12)
+        .ok_or("Invalid radio response.")?;
+    let mut tracks = vec![seed.clone()];
+    for row in rows {
+        let track: crate::library::LibraryTrack =
+            serde_json::from_value(row.clone()).map_err(|_| "Invalid radio recording.")?;
+        let track = track.playable()?;
+        if !tracks.iter().any(|existing| existing.id == track.id) {
+            tracks.push(track);
+        }
+    }
+    if tracks.len() == 1 {
+        return Err("No matching Last.fm recommendations.".into());
+    }
+    Ok(tracks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,6 +712,41 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::mpsc;
     use std::time::Duration;
+
+    #[test]
+    fn radio_keeps_seed_first_deduplicates_and_rejects_bad_responses() {
+        let seed = Track {
+            id: "aaaaaaaaaaa".into(),
+            uri: "https://music.youtube.com/watch?v=aaaaaaaaaaa".into(),
+            name: "Seed".into(),
+            artists: vec!["Artist".into()],
+            album: "Album".into(),
+            duration_ms: 180000,
+            artwork_url: None,
+        };
+        let row =
+            json!({"id":"bbbbbbbbbbb","title":"Related","artist":"Artist","durationMs":180000});
+        let seed_row =
+            serde_json::to_value(crate::library::LibraryTrack::from_track(&seed)).unwrap();
+        let tracks = radio_mix(
+            json!({"tracks":[row.clone(), seed_row.clone(), row.clone()]}),
+            &seed,
+        )
+        .unwrap();
+        assert_eq!(
+            tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["aaaaaaaaaaa", "bbbbbbbbbbb"]
+        );
+        for value in [
+            json!({"tracks":[]}),
+            json!({"tracks":[seed_row]}),
+            json!({"tracks":[{"id":"bad"}]}),
+            json!({"tracks":vec![row;13]}),
+            json!({}),
+        ] {
+            assert!(radio_mix(value, &seed).is_err());
+        }
+    }
 
     const STUB_BRIDGE: &str = r#"#!/bin/sh
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)

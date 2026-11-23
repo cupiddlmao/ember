@@ -4,29 +4,33 @@ A separate, native Linux client for Ember using Rust, GTK4, GStreamer and
 libsoup. It keeps the dark/pink Ember direction and covers a focused part of
 the desktop migration:
 
-- a compact 56–64 px persistent player across the top, with previous,
+- a compact 56 px persistent player across the top, with previous,
   play/pause, next, stop, artwork, a bounded now-playing surface, real
   progress/seek, elapsed/duration and volume
-- a narrow sidebar with catalog search and only the working destinations:
-  Home, Search and Queue
-- a real session Home containing unique recordings found or selected during
-  this run, with an honest compact empty state before the first search
+- a responsive 232 px sidebar with catalog search, the working Home, Search,
+  Queue and Library destinations, and a scrollable shared-playlist section with
+  small covers and a clear selected state
+- a Home overview with square shared-playlist cards and the current session's
+  unique recordings found or selected during this run
 - public YouTube Music search with artwork result rows and queue menus
 - a native queue with duplicate occurrences and stable queue-entry IDs
 - artwork thumbnails loaded asynchronously with bounded network, memory and
   decode limits
 - automatic LRCLIB lyrics with synchronized-line following and seek
+- desktop media controls through `org.mpris.MediaPlayer2`, covering play/pause,
+  next/previous, seek, track metadata and playback position
 
 This is the Ember desktop app. It uses the checkout's Python music core through
 a bounded bridge for public YouTube Music search and resolution, and the Ember
-backend for shared playlists and Last.fm scrobbling. Radio and account sync are
+backend for shared playlists, Last.fm reporting and song radio. Account sync is
 not implemented.
 
 ## Requirements
 
 - Linux with a desktop session
 - Rust **1.92+** and Cargo (developed with 1.99.1)
-- GTK **4.12+** development/runtime packages (developed with 4.24.1)
+- GTK **4.14+** development/runtime packages (developed with 4.24.1);
+  transient notices announce through `gtk_accessible_announce`
 - GStreamer **1.24+** development/runtime packages (developed with 1.28.8),
   including `playbin`, `uridecodebin`, `souphttpsrc`, `autoaudiosink`, and
   codecs needed by the selected YouTube stream
@@ -65,27 +69,43 @@ EMBER_CHECKOUT_ROOT=/absolute/path/to/ember ./target/release/ember-rust
 
 ## Layout and interaction
 
-The default window is 1180×760 and remains usable at its 780×580 minimum. The
-204 px sidebar has compact brand/search at the top, a restrained Session group
-and the Queue count. There are no inactive Browse, Radio, Artists, Albums or
-fake playlist rows. The extra lower sidebar space is intentionally available
-for a future playlist feature.
+The default window is 1180×760 and remains usable at its 780×580 minimum. The 232 px sidebar has compact brand/search at the top, the Home, Search and
+Library destinations, the Queue count and a scrollable Playlists section. Shared playlists appear with
+small covers, names and counts; the selected row is clearly marked. A small **+**
+beside the Playlists heading opens the New playlist dialog. There are no inactive
+Browse, Radio, Artists, Albums or fake rows.
 
-Home shows up to ten unique recordings from successful searches and chosen
-recordings in the current run. Its artwork grid uses four balanced columns at
-wide sizes and reflows to two at the minimum width. Each
-square cover fills its card width, with captions aligned to the artwork edge;
-nothing is persisted and no recommendation or mock catalog is generated. Before
-a search, Home shows a compact introductory empty state that leads back to
-catalog search.
+Home shows real shared-playlist cards followed by up to ten recordings from
+successful searches and chosen recordings in the current run; recordings that
+share an album and first artist collapse into one album card with a count
+badge. Both grids
+use square cards with captions, four columns at wide sizes and two at the
+minimum width. Playlist cards show shared covers when known and a designed
+letter fallback otherwise; nothing is invented and no recommendation or mock
+catalog is generated. The session section keeps its compact search empty state.
+
+The Library destination opens the selected playlist as a dedicated page: a large
+square collage cover, name, song count and duration, primary Play and a compact
+overflow menu for Rename/Delete. Song rows have artwork, title, artist, duration
+and an overflow menu containing Play next, Add to queue, Move up, Move down and
+Remove; there are no four permanent row actions. At the minimum width the header
+stacks with the cover above the title and controls, and long names truncate with
+a full tooltip. Empty playlists retain their header, disabled Play and a clear
+empty message.
 
 The compact top player contains the transport controls, a bounded now-playing
 surface with current artwork and metadata, an integrated real seek bar,
 elapsed/duration, volume, Lyrics and Queue. Stop remains a visible, accessible
-control. The queue/lyrics panel is an inset 340 px overlay on the right rather
+control. The queue/lyrics panel is an inset 360 px overlay on the right rather
 than a layout column, so opening it cannot squeeze the result list or Home grid.
 It has a pinned close button. At the minimum size the overlay still fits within
 the window.
+
+Motion is systematic: hover, press and selection transitions live in
+`style.css` with the documented 120/90/180 ms durations on one
+`cubic-bezier(.2,0,0,1)` curve, the immersive lyrics window fades in over
+420 ms, and its artwork tint crossfades over 320 ms. Every one has an instant
+path when `gtk-enable-animations` is false.
 
 Search result rows retain their artwork, readable/ellipsized metadata,
 duration, queue menu and activation behavior. The Home cards activate the
@@ -149,9 +169,19 @@ Synchronized lines use only LRCLIB's real timestamps. The current line is
 highlighted by color without changing text or row geometry. The panel follows
 the GStreamer playback position, suspends following on manual scrolling, and
 offers **Resume following**. Clicking a timed line seeks the active GStreamer
-stream after clamping the target to the known duration. Plain lyrics are not
-seekable. LRCLIB attribution is shown in the panel. Auto-follow is cancelled on
+stream after clamping the target to the known duration and restores following.
+Plain lyrics are not seekable. LRCLIB attribution is shown in the panel. Auto-follow is cancelled on
 manual scrolling, track changes, panel changes and window close.
+
+The side panel's fullscreen control opens a borderless immersive lyrics window
+without another lyrics request or a playback restart. It reads the same
+`LyricsData` and player position, repeats loading, plain, instrumental, missing
+and error states, and adds restrained artwork, song metadata and playback
+controls. **Escape** or the visible **Exit** control closes it; the main window's
+size, panel and playback state are untouched. Manual scrolling pauses only the
+fullscreen follow position and shows **Resume following**. Both presentations
+use the same color-only active-line treatment so words never move when timing
+advances, and honor the GTK reduce-animation setting for scrolling.
 
 ## Temporary Python bridge
 
@@ -193,28 +223,85 @@ cargo test --locked
 python3 -m unittest -v test_bridge.py
 ```
 
+### Sized captures
+
+`EMBER_UI_SIZE` sets the launch size and makes the process non-unique, so a
+capture is never forwarded to an already-running Ember. On the live X11
+session:
+
+```bash
+cd desktop-rust
+before=$(xprop -root _NET_CLIENT_LIST | grep -oE '0x[0-9a-f]+' | sort)
+GDK_BACKEND=x11 EMBER_UI_SIZE=1180x760 ./target/release/ember-rust &
+pid=$!
+sleep 4
+after=$(xprop -root _NET_CLIENT_LIST | grep -oE '0x[0-9a-f]+' | sort)
+wid=$(comm -13 <(echo "$before") <(echo "$after") | grep -v '^$' | tail -1)
+import -window "$wid" ../screenshots/matrix/1180-home.png
+kill "$pid"
+```
+
+`import` captures the X11 window including 25 px of CSD shadow per side, so a
+1180×760 window arrives as 1230×810. Crop it back before measuring:
+
+```bash
+convert ../screenshots/matrix/1180-home.png \
+  -crop 1180x760+25+25 +repage ../screenshots/matrix/1180-home.png
+```
+
+`WM_NORMAL_HINTS` carries the same offset: 830×630 for 780×580 of content.
+Verify the cropped content size, not the raw PNG.
+
 The focused tests cover queue occurrence IDs, Play next ordering, upcoming-only
 edits, stale resolve rejection, paused preparation, stop/retry, single
 end-of-track advancement, lyric states, timestamp validation, bridge response
 bounds, sanitization, timeouts, process termination, artwork host validation,
-seek conversion and bounded artwork response bodies. Run the commands above; they report the current Rust and Python test counts.
+seek conversion and bounded artwork response bodies. Motion has its own
+display-gated check: it renders a widget frame by frame to prove the CSS
+transition paints intermediate frames, that `gtk-enable-animations=false`
+removes it, and that the tint (320 ms) and immersive (420 ms) fades animate
+through the same switch.
+
+```bash
+cargo test --locked css_transitions_and_tick_fades_animate_and_honour_reduce_animation \
+  -- --ignored --test-threads=1
+``` Run the commands above; they report the current Rust and Python test counts.
+
+Every ignored display test needs its own process: GTK can only be initialized
+once per process, while the test harness runs each test on a fresh thread, so a
+run containing two display tests aborts with "Attempted to initialize GTK from
+two different threads". Repeat the single-test command once per test instead of
+running them together with `--ignored`.
 
 The native shell was inspected in an isolated X11 session at 1180×760 and
-780×580, including the compact empty and populated Home layouts, a real search
-with long result titles, real artwork sizing, queue overlay, lyrics overlay,
-panel close and transport state changes. Audio was routed to a test sink during
-UI validation, so audible playback and lower RAM were not evaluated or claimed.
+780×580, including populated Home at both sizes, shared-playlist cards, a real
+four-cover playlist page, reflowed narrow header, aligned song rows, long-name
+truncation, the empty-playlist message, sidebar selection and settings-adjacent
+controls. A focused display test checks that Create, Rename and Add dialogs release
+their controls after closing, and that emptied/deleted playlists and connection
+resets clear cached covers. Audio was routed to a test sink during UI
+validation, so audible playback and lower RAM were not evaluated or claimed.
 Compilation and tests do not prove smooth long-running visuals or real-device
 audio behavior.
 
 ## Current limits
 
-Playlist sync, a playlist sidebar, radio, downloads, shuffle/repeat, local
-filesystem scanning, session persistence and account sync remain out of scope.
+Playlist sync beyond the shared Ember library, downloads, repeat,
+local filesystem scanning, session persistence and account sync remain out of
+scope.
 There is no disk artwork cache, so covers require network access on a new run.
-The Rust client is the only desktop surface; radio and account sync are not
-implemented. Last.fm listens are queued locally and retried after the shared
-backend reports a temporary disconnect.
+The Rust client is the only desktop surface; provider account sync is not implemented.
+
+Track three-dot menus in search and shared playlists include **Song radio**.
+Last.fm chooses up to12 related tracks on the configured Ember backend; YouTube
+Music supplies matched recordings. The native client uses the server address/key
+from Ember Settings, places the selected song first, deduplicates recommendations,
+and starts the new queue only after a nonempty successful response. No personal
+Last.fm login is required, but the backend needs its API credentials and the new
+`radio` action documented in [LASTFM.md](../mobile/backend/LASTFM.md).
+Failed/empty recommendations leave the queue intact. Search, playback changes,
+pause, stop or closing the app cancel pending radio responses. The mix is finite;
+it does not automatically fetch more recommendations or fall back to YouTube mixes.
 
 Home artwork uses a native height-for-width widget so covers fill the card and
 remain square through initial display and resizing. The display-only regression
@@ -260,17 +347,24 @@ The hidden key is stored in an owner-only `0600` connection file under
 `$XDG_DATA_HOME/ember-player/rust-library` (normally `~/.local/share/...`), outside
 both the checkout and evictable audio cache. No provider login is needed.
 
-The Library navigation item supports multiple playlists, create/rename/delete,
-play all or a selected occurrence, Play next, remove songs and move up/down.
-Type a name in the name field to create or rename. Deletion requires confirmation
-and affects all devices. Add to playlist is available in search-result menus and
-from the player bar's add button. Create a playlist in Library before adding songs.
-Playback continues to use the desktop's own resolution, GStreamer and audio cache.
-Large playlists display 100 rows at a time; playback uses the full ordered list,
-sharing one track vector between row callbacks rather than copying it per row.
+The sidebar Playlists section supports multiple shared playlists and clearly
+marks the selected one. Its **+** opens a New playlist dialog; Create or Enter
+submits a 1–120-character name and Cancel or Escape dismisses it. Rename and
+delete live in the selected playlist page's overflow menu; deletion requires
+confirmation and affects all devices. Song reorder, remove and queue actions are
+in each row's overflow menu. Add to playlist is available in search-result menus
+and from the player bar's add button, showing the song title/artist and compact
+playlist rows with an explicit Close action. Playback continues to use the
+desktop's own resolution, GStreamer and audio cache. Large playlists initially display
+100 rows and append the next batch near the bottom as you scroll, without paging
+buttons or replacing previous rows. Visited rows remain until the page refreshes.
+Playback uses the full ordered list, sharing one track vector
+between row callbacks rather than copying it per row. Cover collages use at most
+four unique current track-artwork URLs and never upload or define a custom cover.
 
 Refresh runs on Library entry, foreground return while Library is visible, and
-manually. No realtime or periodic polling is used. Successful reads are privately
+manually. Foreground refresh waits for the activating click and skips open menus
+or dialogs, so playlist actions are not dismissed by a page rebuild. No realtime or periodic polling is used. Successful reads are privately
 cached per normalized server address, retaining summaries and the last opened
 playlist. When offline those reads are available for browsing/playback, but edits
 are disabled. Uncached audio still needs the network.
@@ -289,7 +383,33 @@ Focused checks:
 ```bash
 .venv/bin/python -m unittest discover -s desktop-rust -p test_library.py -v
 cargo test --locked --manifest-path desktop-rust/Cargo.toml library::tests
+cargo test --locked --manifest-path desktop-rust/Cargo.toml \
+  library::tests::closed_dialog_callbacks_release_window -- --ignored --exact
 ```
 
-These exercise a temporary local backend and metadata contracts, not the deployed
-laptop library or native pointer interaction. CSV import remains a separate task.
+These exercise a temporary local backend, metadata contracts and dialog release,
+not the deployed laptop library. The display-only dialog test must run in its own
+process under a native GTK session. Approved CSV match reports can be imported
+with the root `import_ember_playlist.py` tool; see [TRANSFER.md](../TRANSFER.md).
+
+The grey Shuffle action beside playlist Play starts the full playlist in a random
+queue order, preserving duplicate occurrences and leaving the saved order unchanged.
+
+### Last.fm
+
+Settings now includes backend-hosted Last.fm authorization. Save the same Ember server connection used by your iPhone, then Connect, approve in the browser, and Finish authorization. Only advancing, non-buffering playback counts; seeks and pauses do not. See [backend setup and retry limits](../mobile/backend/LASTFM.md).
+
+Listens are held in a private owner-only outbox and retried after a temporary
+disconnect, so a short outage does not lose them. The outbox and a pending
+browser authorization both survive an app restart, so the finish button still
+completes an approval made in an earlier session.
+Disconnecting applies to both clients.
+
+### Playlist keyboard navigation
+
+With a playlist open, type a title or artist to jump
+to a matching song without changing playback. Title prefixes take priority over
+substring matches. Repeating a single letter cycles through matches; pause for
+one second or press Escape to start a new query. Enter plays the focused song.
+Matches include the entire playlist, loading later row batches when needed.
+Text-entry fields and open menus retain their normal keyboard behavior.

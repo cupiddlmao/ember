@@ -1,6 +1,8 @@
 # Ember-owned playlist sync
 
-Status: backend SQLite/API is implemented locally in `mobile/backend/library_store.py` and documented in `mobile/backend/LIBRARY_API.md`. SwiftUI integration and private in-session offline read cache are implemented in source; Rust integration is also implemented locally; macOS build/device checks, native Rust interaction checks and deployment remain pending. The sections below describe the overall plan. Finish/review the Rust desktop UI first, then implement shared playlists, then redesign the iPhone SwiftUI using its own Apple Music phone reference.
+Status: backend SQLite/API is implemented locally in `mobile/backend/library_store.py` and documented in `mobile/backend/LIBRARY_API.md`. SwiftUI integration and private in-session offline read cache are implemented in source; Rust integration is also implemented locally; macOS build/device checks, native Rust interaction checks and deployment remain pending. The sections below describe the overall plan.
+
+The desktop UI revision and this shared-library/radio/lyrics line are now merged on one branch, so the sequencing below is historical: the remaining work is verification and deployment, not a further desktop pass.
 
 ## Recommendation
 Keep the existing Python laptop backend and add SQLite using Python's standard library. The backend becomes the source of truth for Ember-owned playlists. Both Rust desktop and iPhone use authenticated HTTPS over the existing Tailscale /ember address. No YouTube account, playlist upload or provider playlist ownership is needed.

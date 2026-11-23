@@ -48,6 +48,6 @@ The iOS app is built by the manual [`ios-unsigned.yml`](.github/workflows/ios-un
 
 This uses unofficial ytmusicapi and yt-dlp integrations. Availability, regional/age/account restrictions and upstream changes can interrupt playback; no subscription or DRM bypass is provided. Playback resolves temporary public stream URLs only when streaming, and neither those URLs nor credentials are stored by Ember. Persistent offline copies may conflict with YouTube's terms or copyright; use downloads only for content you have the right to keep.
 
-The Rust desktop client does not implement MPRIS media controls or Google account sync. Shared playlists are stored by the self-hosted backend, not by a provider account. The iPhone app has its own cache and playback limitations documented in [mobile/README.md](mobile/README.md).
+The Rust desktop client publishes MPRIS media controls but does not implement Google account sync. Shared playlists are stored by the self-hosted backend, not by a provider account. The iPhone app has its own cache and playback limitations documented in [mobile/README.md](mobile/README.md).
 
 Last.fm scrobbling is available through the shared backend; see [Last.fm setup](mobile/backend/LASTFM.md).
