@@ -109,6 +109,9 @@ final class AppModel: ObservableObject {
             try await api.health()
             client = api
             connectionError = nil
+        } catch APIError.unauthorized {
+            client = nil
+            connectionError = "The server rejected the saved access key. Enter the current key from the server's .env file."
         } catch {
             client = nil
             connectionError = "Could not reconnect to the saved server. Check Tailscale, then try again."
