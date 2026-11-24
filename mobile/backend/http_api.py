@@ -104,6 +104,10 @@ class EmberServer(ThreadingHTTPServer):
         self.library = library if library is not None else LibraryStore(settings.library_dir)
         self.lastfm = LastFM(settings)
         self.limiter = limiter or RateLimiter(settings.rate_limit_per_minute)
+        # Failed sign-ins are limited on their own, so unauthenticated traffic can
+        # never use up the budget of the signed-in owner (all clients share one
+        # address behind a reverse proxy).
+        self.auth_failures = RateLimiter(10)
         self.jobs = threading.BoundedSemaphore(max(1, settings.max_concurrent_jobs))
         super().__init__(address, ApiHandler)
 
@@ -130,7 +134,12 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         # Reject/close unread bodies on auth and framing errors; never parse them as another request.
-        if self.command != "GET":
+        # A GET that carries a body is closed too, so its bytes are never parsed as the next request.
+        if (
+            self.command != "GET"
+            or self.headers.get("Transfer-Encoding") is not None
+            or self.headers.get("Content-Length", "0").strip() not in ("", "0")
+        ):
             self.close_connection = True
         parsed = urlsplit(self.path)
         started = time.monotonic()
@@ -174,17 +183,32 @@ class ApiHandler(BaseHTTPRequestHandler):
             return path[len("/ember"):]
         return path
 
-    def _route(self, parsed) -> int:
-        if not self.server.limiter.allow(self.client_address[0]):
-            self._send_error(
-                HTTPStatus.TOO_MANY_REQUESTS,
-                "rate_limited",
-                "Too many requests. Wait a moment and try again.",
-                {"Retry-After": "30"},
-            )
-            return HTTPStatus.TOO_MANY_REQUESTS
+    def _client_key(self) -> str:
+        """The caller's address; X-Forwarded-For counts only from a trusted proxy."""
+        peer = self.client_address[0]
+        if peer in self.server.settings.trusted_proxies:
+            forwarded = self.headers.get("X-Forwarded-For", "").split(",")[-1].strip()
+            if forwarded and len(forwarded) <= 64:
+                return forwarded
+        return peer
 
-        if not self._authorized():
+    def _too_many_requests(self) -> int:
+        self._send_error(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Too many requests. Wait a moment and try again.",
+            {"Retry-After": "30"},
+        )
+        return HTTPStatus.TOO_MANY_REQUESTS
+
+    def _route(self, parsed) -> int:
+        client = self._client_key()
+        authorized = self._authorized()
+        if authorized and not self.server.limiter.allow(client):
+            return self._too_many_requests()
+        if not authorized:
+            if not self.server.auth_failures.allow(client):
+                return self._too_many_requests()
             self._send_error(
                 HTTPStatus.UNAUTHORIZED,
                 "unauthorized",

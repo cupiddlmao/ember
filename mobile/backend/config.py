@@ -37,6 +37,8 @@ class Settings:
     max_audio_bytes: int = 48 * 1024 ** 2
     max_concurrent_jobs: int = 3
     rate_limit_per_minute: int = 60
+    # Peer addresses of reverse proxies whose X-Forwarded-For header is believed.
+    trusted_proxies: frozenset = frozenset()
 
     def __post_init__(self):
         if self.library_dir.resolve().is_relative_to(self.cache_dir.resolve()):
@@ -62,4 +64,7 @@ class Settings:
             max_audio_bytes=_positive_int("EMBER_MAX_AUDIO_MB", 48) * 1024 * 1024,
             max_concurrent_jobs=_positive_int("EMBER_MAX_JOBS", 3),
             rate_limit_per_minute=_positive_int("EMBER_RATE_LIMIT", 60),
+            trusted_proxies=frozenset(
+                item.strip() for item in os.environ.get("EMBER_TRUSTED_PROXIES", "").split(",") if item.strip()
+            ),
         )

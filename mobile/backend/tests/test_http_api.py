@@ -1,6 +1,7 @@
 """Focused tests for the Ember mobile HTTP API (no network access)."""
 from __future__ import annotations
 
+import dataclasses
 import http.client
 import json
 import os
@@ -163,6 +164,44 @@ class ApiTests(unittest.TestCase):
             status, content_type, body = self.request("/v1/health", token=token)
             self.assertEqual(status, 401)
             self.assertEqual(self.error_body(body)[0], "unauthorized")
+
+    def test_failed_sign_ins_cannot_spend_the_owners_rate_budget(self):
+        self.server.limiter = RateLimiter(3, window=60)
+        for _ in range(10):
+            self.assertEqual(self.request("/v1/health", token="wrong-key")[0], 401)
+        status, _, body = self.request("/v1/health", token="wrong-key")
+        self.assertEqual(status, 429)
+        self.assertEqual(self.error_body(body)[0], "rate_limited")
+        for _ in range(3):
+            self.assertEqual(self.request("/v1/health")[0], 200)
+        self.assertEqual(self.request("/v1/health")[0], 429)
+
+    def test_forwarded_for_is_trusted_only_from_a_trusted_proxy(self):
+        self.server.limiter = RateLimiter(1, window=60)
+        headers = {"X-Forwarded-For": "203.0.113.7, 198.51.100.1"}
+        self.assertEqual(self.request("/v1/health", extra_headers=headers)[0], 200)
+        self.assertEqual(self.request("/v1/health", extra_headers=headers)[0], 429)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "192.0.2.9"})[0], 429)
+
+        trusted = dataclasses.replace(self.server.settings, trusted_proxies=frozenset({"127.0.0.1"}))
+        self.server.settings = trusted
+        self.server.limiter = RateLimiter(1, window=60)
+        self.assertEqual(self.request("/v1/health", extra_headers=headers)[0], 200)
+        self.assertEqual(self.request("/v1/health", extra_headers=headers)[0], 429)
+        other = {"X-Forwarded-For": "203.0.113.8, 198.51.100.2"}
+        self.assertEqual(self.request("/v1/health", extra_headers=other)[0], 200)
+
+    def test_a_get_with_a_body_closes_the_connection(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request("GET", "/v1/health", body=b"GET /v1/health HTTP/1.1\r\n\r\n",
+                               headers={"Authorization": f"Bearer {TOKEN}"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Connection"), "close")
+            response.read()
+        finally:
+            connection.close()
 
     def test_health_reports_the_build_commit(self):
         with patch.dict(os.environ, {"EMBER_GIT_COMMIT": "bc01946"}):
