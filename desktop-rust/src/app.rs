@@ -133,6 +133,7 @@ fn activate(application: &gtk4::Application) {
     let player = build_player_bar();
     let add_playing = icon_button("list-add-symbolic", "Add current song to playlist");
     add_playing.add_css_class("top-action");
+    add_playing.set_sensitive(false);
     player.header.pack_end(&add_playing);
 
     let setup_label = label("", "setup-banner");
@@ -152,7 +153,7 @@ fn activate(application: &gtk4::Application) {
     main_stack.add_named(&home.page, Some("home"));
     main_stack.add_named(&library.borrow().page, Some("library"));
     main_stack.add_named(&search.page, Some("search"));
-    main_stack.set_visible_child_name("home");
+    main_stack.set_visible_child_name(&crate::viewport::capture_page());
 
     let notice = crate::notice::Notice::new();
 
@@ -256,6 +257,7 @@ fn activate(application: &gtk4::Application) {
         play_icon: player.play_icon,
         play_button: player.play_button,
         stop_button: player.stop_button,
+        add_playing: add_playing.clone(),
         previous_button: player.previous_button,
         next_button: player.next_button,
         volume_scale: player.volume_scale,
@@ -765,11 +767,6 @@ fn build_search_page() -> SearchParts {
     empty_label.set_wrap_mode(pango::WrapMode::WordChar);
     empty_label.set_max_width_chars(46);
     empty.append(&empty_label);
-    let empty_copy = label("Search from the sidebar to see songs here.", "empty-copy");
-    empty_copy.set_wrap(true);
-    empty_copy.set_wrap_mode(pango::WrapMode::WordChar);
-    empty_copy.set_max_width_chars(46);
-    empty.append(&empty_copy);
     results_stack.add_named(&empty, Some("empty"));
 
     let results_list = gtk4::ListBox::new();
@@ -785,6 +782,18 @@ fn build_search_page() -> SearchParts {
     results_stack.add_named(&results_scroll, Some("list"));
     results_stack.set_visible_child_name("empty");
     page.append(&results_stack);
+
+    // The heading carries the result count, so it belongs to the list and
+    // nothing else: over an empty state it repeated, twice, the sentence the
+    // empty page already says. The notify only fires on a change and the stack
+    // starts on "empty", so the initial state is set here as well.
+    result_header.set_visible(false);
+    {
+        let heading = result_header.clone();
+        results_stack.connect_visible_child_notify(move |stack| {
+            heading.set_visible(stack.visible_child_name().as_deref() == Some("list"));
+        });
+    }
 
     SearchParts {
         page,
@@ -881,7 +890,7 @@ fn build_player_bar() -> PlayerParts {
     volume_box.set_valign(gtk4::Align::Center);
     volume_box.append(&volume_icon);
     volume_box.append(&volume_scale);
-    let lyrics_toggle = icon_button("text-x-generic-symbolic", "Lyrics");
+    let lyrics_toggle = icon_button("lyrics-symbolic", "Lyrics");
     lyrics_toggle.add_css_class("top-action");
     let queue_toggle = icon_button("view-list-symbolic", "Queue");
     queue_toggle.add_css_class("top-action");
@@ -1563,6 +1572,7 @@ struct AppUi {
     play_icon: gtk4::Image,
     play_button: gtk4::Button,
     stop_button: gtk4::Button,
+    add_playing: gtk4::Button,
     previous_button: gtk4::Button,
     next_button: gtk4::Button,
     volume_scale: gtk4::Scale,
@@ -2357,6 +2367,10 @@ impl AppUi {
     }
 
     fn update_now_playing_labels(&self) {
+        // Without a current recording the button opens no dialog, so it must
+        // not look like one that does.
+        self.add_playing
+            .set_sensitive(self.queue.current().is_some());
         if let Some(entry) = self.queue.current() {
             self.title_label.set_text(&entry.track.name);
             self.artist_label.set_text(&entry.track.artist_line());
@@ -4039,6 +4053,7 @@ fn track_row(track: &Track, weak: &Weak<RefCell<AppUi>>) -> (gtk4::ListBoxRow, A
     let menu_button = gtk4::MenuButton::new();
     let menu_icon = gtk4::Image::from_icon_name("view-more-symbolic");
     menu_icon.set_pixel_size(14);
+    menu_icon.add_css_class("row-menu-glyph");
     menu_button.set_child(Some(&menu_icon));
     menu_button.add_css_class("row-menu");
     menu_button.set_tooltip_text(Some("Song options"));

@@ -6,6 +6,8 @@ pub const MIN_WIDTH: i32 = 780;
 pub const MIN_HEIGHT: i32 = 580;
 pub const MAX_CAPTURE: i32 = 7680;
 pub const CAPTURE_ENV: &str = "EMBER_UI_SIZE";
+pub const PAGES: [&str; 3] = ["home", "search", "library"];
+pub const PAGE_ENV: &str = "EMBER_UI_PAGE";
 
 /// Parses the `WIDTHxHEIGHT` or `WIDTH×HEIGHT` capture size.
 ///
@@ -26,6 +28,17 @@ pub fn parse_size(value: &str) -> Option<(i32, i32)> {
     Some((width, height))
 }
 
+/// The initial page requested by a UI-matrix capture, defaulting to Home.
+///
+/// Only the three real destinations are accepted, so a typo cannot leave the
+/// verification capture pointing at a page that does not exist.
+pub fn capture_page() -> String {
+    match std::env::var(PAGE_ENV).ok().as_deref() {
+        Some(page) if PAGES.contains(&page) => page.to_owned(),
+        _ => "home".to_owned(),
+    }
+}
+
 /// Reads the capture size from the environment, if it is valid.
 pub fn capture_size() -> Option<(i32, i32)> {
     std::env::var(CAPTURE_ENV)
@@ -36,6 +49,15 @@ pub fn capture_size() -> Option<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_page_accepts_only_real_destinations() {
+        unsafe { std::env::set_var(PAGE_ENV, "library") };
+        assert_eq!(capture_page(), "library");
+        unsafe { std::env::set_var(PAGE_ENV, "settings") };
+        assert_eq!(capture_page(), "home");
+        unsafe { std::env::remove_var(PAGE_ENV) };
+    }
 
     #[test]
     fn parses_capture_sizes_and_rejects_out_of_range() {

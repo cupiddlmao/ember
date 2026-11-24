@@ -43,6 +43,13 @@ headerbar.top-player windowcontrols button {
   min-width: 24px;
   min-height: 24px;
   padding: 0;
+  background: transparent;
+  color: @text-2;
+}
+
+headerbar.top-player windowcontrols button:hover {
+  background: @hairline;
+  color: @text;
 }
 
 .transport {
@@ -505,9 +512,29 @@ button.row-menu {
   border-radius: 6px;
 }
 
-button.row-menu:hover {
-  color: @text;
+/* One permanent ellipsis on every row of a 5,000-song playlist is chrome, not
+   content, so it rests quiet and answers the pointer or the keyboard. It is not
+   hidden outright: this menu is the only way to play next, queue, reorder or
+   remove a song, and an invisible control is a lost one. The class sits on the
+   icon rather than the button because GTK applies CSS opacity to a widget's own
+   node and not to its children. */
+image.row-menu-glyph {
+  opacity: 0.35;
+}
+
+button.row-menu:hover,
+button.row-menu:focus-visible,
+button.row-menu:checked {
   background: @hairline;
+  color: @text;
+}
+
+button.row-menu:hover image.row-menu-glyph,
+button.row-menu:focus-visible image.row-menu-glyph,
+button.row-menu:checked image.row-menu-glyph,
+box.library-song:hover image.row-menu-glyph,
+row:hover image.row-menu-glyph {
+  opacity: 1;
 }
 
 popover.track-menu {
@@ -1448,10 +1475,14 @@ button.playlist-nav-row.selected .playlist-nav-meta {
   padding: 7px 9px 12px;
 }
 
-/* Cover collage */
+/* Cover collage.
+   library.rs::cover_palette maps a name onto one of six duotones, so a
+   playlist with no artwork still reads as a designed surface rather than a
+   failed image. The radii here match COVER_RADIUS / COVER_RADIUS_SMALL in
+   library.rs, which is where the collage is actually clipped. */
 .playlist-cover-wrap {
   border-radius: 10px;
-  background: @raised;
+  background: transparent;
 }
 
 .playlist-cover {
@@ -1464,8 +1495,32 @@ button.playlist-nav-row.selected .playlist-nav-meta {
   border-radius: 10px;
 }
 
+.cover-palette-0 {
+  background-image: linear-gradient(155deg, #2c323f 0%, #1d212a 100%);
+}
+
+.cover-palette-1 {
+  background-image: linear-gradient(155deg, #38292f 0%, #241b20 100%);
+}
+
+.cover-palette-2 {
+  background-image: linear-gradient(155deg, #26332e 0%, #1a2421 100%);
+}
+
+.cover-palette-3 {
+  background-image: linear-gradient(155deg, #37301f 0%, #231e13 100%);
+}
+
+.cover-palette-4 {
+  background-image: linear-gradient(155deg, #23313a 0%, #172027 100%);
+}
+
+.cover-palette-5 {
+  background-image: linear-gradient(155deg, #2f2a3c 0%, #1f1c29 100%);
+}
+
 .cover-initial {
-  color: @text;
+  color: rgba(255, 255, 255, 0.86);
   font-size: 48px;
   font-weight: 600;
   letter-spacing: -1px;
@@ -1473,15 +1528,23 @@ button.playlist-nav-row.selected .playlist-nav-meta {
 }
 
 .cover-initial.small {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0;
   padding: 0;
 }
 
 .playlist-card-cover .cover-initial {
-  color: @text-3;
-  font-size: 28px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 34px;
+  letter-spacing: -0.5px;
   padding-bottom: 0;
+}
+
+.row-cover,
+.row-cover .playlist-cover-fallback,
+.row-cover .cover-picture {
+  border-radius: 6px;
 }
 
 .cover-placeholder {
@@ -1537,8 +1600,8 @@ button.playlist-nav-row.selected .playlist-nav-meta {
 .hero-cover {
   min-width: 200px;
   min-height: 200px;
-  border-radius: 10px;
-  background: @raised;
+  border-radius: 0;
+  background: transparent;
 }
 
 .hero-cover.compact {
@@ -1616,6 +1679,13 @@ button.song-row-main {
   padding: 5px 8px;
 }
 
+.song-index {
+  color: @text-3;
+  font-feature-settings: "tnum";
+  font-size: 12px;
+  margin-right: -4px;
+}
+
 .song-duration {
   color: @text-3;
   font-feature-settings: "tnum";
@@ -1648,7 +1718,7 @@ flowbox.playlist-flow > flowboxchild {
 }
 
 .playlist-card-cover {
-  border-radius: 6px;
+  border-radius: 10px;
   background: @raised;
 }
 
@@ -1677,9 +1747,10 @@ button.playlist-card:focus-visible {
 }
 
 .home-lead {
-  background: @raised;
+  background-image: linear-gradient(100deg, @raised 0%, #202027 58%, @canvas 100%);
+  border: 1px solid @hairline;
   border-radius: 14px;
-  padding: 18px;
+  padding: 20px;
 }
 
 .home-invitation {

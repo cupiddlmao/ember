@@ -69,7 +69,17 @@ into a low-contrast page.
 ### Geometry
 
 - **Radii:** 6 (controls, rows), 10 (cards, artwork), 14 (panel, dialogs),
-  999 (pills). Nothing else.
+  999 (pills). Nothing else. A cover collage is clipped to its radius in Rust
+  (`artwork::SquareCover`), because CSS radii round a widget's background and
+  leave square-cornered images painted over them.
+- **Cover fallbacks:** a playlist with no artwork gets one of six dark duotone
+  gradients, chosen from the name (`library::cover_palette`), with the initial
+  on top: 34 px on a card, 12 px on a 28 px sidebar cover. The duotone is what
+  makes the fallback read as a designed surface rather than a failed load; a
+  flat grey box with a letter in it read as broken. Rail and sidebar covers
+  show artwork only for the playlist whose detail has been loaded, because the
+  library list carries no artwork and fetching it per playlist would change
+  the data contract.
 - **Spacing:** 4 px grid. Page gutter 24 px. Section gap 24 px. Row heights
   32 (nav), 40 (compact), 52 (song).
 - **Sidebar:** 232 px. Keeps 548 px of content at the 780 px minimum.
@@ -100,8 +110,8 @@ text geometry never animates.
   repository and a load path that must be proven (see Risks).
 - Every selector in `style.css` is rewritten; no surface may keep a raw hex or
   fractional size.
-- Cover letter fallbacks keep 48 px display type, which is outside the UI
-  scale by design.
+- Cover letter fallbacks keep display type outside the UI scale by design:
+  48 px on a page hero, 34 px on a card.
 
 ## Risks
 
@@ -139,6 +149,32 @@ text geometry never animates.
   immersive window fades in over `motion::IMMERSIVE` (420 ms), both through
   `eased_progress`. The library hero's tint still swaps in one frame: it has no
   separate layer to fade, which is recorded as a known limitation.
+
+## Probe results (2026-11-24)
+
+- **CSS `opacity` does not reach children.** It applies to a widget's own node,
+  so `button.row-menu { opacity: 0 }` left the ellipsis painted. Row menus now
+  carry the class on their `image` child and rest at 0.35, rising to 1 on
+  `:hover`, `:focus-visible` and `:checked`. They are not hidden outright: that
+  menu is the only route to Play next, queue, reorder and remove.
+- **Ancestor `:hover` is not relied on.** The row-level reveal
+  (`box.library-song:hover image.row-menu-glyph`) is a convenience; the
+  button's own `:hover` rule is what guarantees the affordance answers the
+  pointer. A capture cannot prove either, since nothing here can move the real
+  pointer, so hover states are judged from the rules, not from a screenshot.
+- **`AspectFrame` defeats the cover clip.** It scales its child instead of
+  allocating it, so a `SquareCover` inside one is not rounded. The library hero
+  is therefore square-cornered on purpose, while cards and sidebar covers are
+  rounded.
+- **A custom `measure` ignores CSS sizing.** `SquareCover::measure` replaces
+  GTK's CSS min/max handling, and `artwork_view`'s placeholder glyph expands,
+  which GTK propagates upward: using it at 28 px stretched every sidebar row to
+  the height of the list. Small covers clear the expand flags explicitly.
+- **Captures:** `EMBER_UI_PAGE` selects the initial page (home, search or
+  library) so the matrix can photograph pages that need a click to reach.
+  `grim` fails on this compositor ("doesn't support the screen capture
+  protocol"); the X11 `import` recipe in the desktop README is the working
+  path.
 
 ## Out of scope
 
