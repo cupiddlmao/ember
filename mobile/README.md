@@ -271,7 +271,7 @@ xcodebuild -project EmberMobile.xcodeproj \
   build
 ```
 
-It then packages `Payload/EmberMobile.app` into an IPA, verifies there is no `_CodeSignature`, checks that `UIBackgroundModes` contains `audio`, verifies that `EmberGitCommit` matches the checked-out short SHA, prints a SHA-256, and uploads the artifact. If the build fails, the **xcodebuild-log** artifact is uploaded for diagnosis.
+It then packages `Payload/EmberMobile.app` into an IPA, verifies there is no `_CodeSignature`, checks that `UIBackgroundModes` contains `audio`, verifies that `EmberGitCommit` matches the checked-out short SHA, prints a SHA-256, and uploads the artifact. Before uploading it reads `EmberGitCommit` back out of the packaged IPA and fails unless that value equals the commit of the ref the run was dispatched on, so dispatching `v0.3.0` cannot upload an artifact built from a different commit. If the build fails, the **xcodebuild-log** artifact is uploaded for diagnosis.
 
 The app bundle identifier is `com.ember.mobile`; version `0.3.0` (build `3`). SideStore re-signs the app, so CI never needs your Apple ID.
 
