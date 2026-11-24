@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -184,13 +185,32 @@ class ApiHandler(BaseHTTPRequestHandler):
         return path
 
     def _client_key(self) -> str:
-        """The caller's address; X-Forwarded-For counts only from a trusted proxy."""
+        """The caller's address; X-Forwarded-For counts only from a trusted proxy.
+
+        Only the rightmost entry is read, because that is the one an appending proxy
+        writes itself; anything to its left is whatever the caller sent. It must also
+        parse as an address, so junk -- or a proxy that merely forwards the header
+        instead of appending -- falls back to the socket peer rather than handing the
+        caller a bucket of their own choosing.
+        """
         peer = self.client_address[0]
-        if peer in self.server.settings.trusted_proxies:
-            forwarded = self.headers.get("X-Forwarded-For", "").split(",")[-1].strip()
-            if forwarded and len(forwarded) <= 64:
-                return forwarded
-        return peer
+        if peer not in self.server.settings.trusted_proxies:
+            return peer
+        forwarded = self.headers.get("X-Forwarded-For", "").rsplit(",", 1)[-1].strip()
+        if not forwarded or len(forwarded) > 64:
+            return peer
+        if forwarded.startswith("["):
+            # Brackets mark an IPv6 literal, possibly followed by a port.
+            candidate = forwarded[1:].split("]", 1)[0]
+        elif forwarded.count(":") == 1:
+            # A single colon is an IPv4 address with a port appended by the proxy.
+            candidate = forwarded.split(":", 1)[0]
+        else:
+            candidate = forwarded
+        try:
+            return str(ipaddress.ip_address(candidate))
+        except ValueError:
+            return peer
 
     def _too_many_requests(self) -> int:
         self._send_error(

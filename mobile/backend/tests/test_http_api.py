@@ -191,6 +191,26 @@ class ApiTests(unittest.TestCase):
         other = {"X-Forwarded-For": "203.0.113.8, 198.51.100.2"}
         self.assertEqual(self.request("/v1/health", extra_headers=other)[0], 200)
 
+    def test_forwarded_for_must_parse_as_an_address_to_be_believed(self):
+        trusted = dataclasses.replace(self.server.settings, trusted_proxies=frozenset({"127.0.0.1"}))
+        self.server.settings = trusted
+
+        # A proxy that appends a port must not give each connection its own bucket.
+        self.server.limiter = RateLimiter(1, window=60)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "203.0.113.7:51234"})[0], 200)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "203.0.113.7:51235"})[0], 429)
+
+        # A bracketed IPv6 literal with a port is the same caller as the bare address.
+        self.server.limiter = RateLimiter(1, window=60)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "[2001:db8::1]:443"})[0], 200)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "2001:db8::1"})[0], 429)
+
+        # Junk falls back to the socket peer, so it cannot mint a fresh bucket, and a
+        # valid address to its left must not be believed either.
+        self.server.limiter = RateLimiter(1, window=60)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "198.51.100.9, not-an-address"})[0], 200)
+        self.assertEqual(self.request("/v1/health", extra_headers={"X-Forwarded-For": "192.0.2.4, also-junk"})[0], 429)
+
     def test_a_get_with_a_body_closes_the_connection(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         try:
