@@ -55,24 +55,54 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install GTK, GStreamer and libsoup development packages
-        # The apt mirror occasionally accepts a connection and then stalls
-        # without progress; the job-level budget is 20 minutes, which is far
-        # too long to wait on an install that normally takes two or three.
-        # This bound fails the job in ten minutes instead of leaving the run
-        # "in progress" and every required check pending behind it.
-        timeout-minutes: 10
+      - name: Resolve apt package set
+        id: apt
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            ffmpeg \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            libgtk-4-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            libsoup-3.0-dev \
-            pkg-config
+          set -euo pipefail
+          PACKAGES="ffmpeg
+          gstreamer1.0-plugins-base
+          gstreamer1.0-plugins-good
+          libgtk-4-dev
+          libgstreamer1.0-dev
+          libgstreamer-plugins-base1.0-dev
+          libsoup-3.0-dev
+          pkg-config"
+          printf 'hash=%s\n' "$(printf '%s' "$PACKAGES" | tr -d '[:space:]' | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          { echo 'packages<<APT_PACKAGES_EOF'; echo "$PACKAGES"; echo 'APT_PACKAGES_EOF'; } >> "$GITHUB_OUTPUT"
+
+      # The mirror has stalled mid-download often enough that a plain install
+      # fails roughly one run in three, always partway through the `Get:` lines.
+      # Cached .debs let the install run with --no-download and skip the mirror
+      # entirely. The key follows the package list, so adding a package misses
+      # the cache rather than installing a stale set.
+      - name: Restore cached apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ember-apt
+          key: apt-${{ runner.os }}-${{ steps.apt.outputs.hash }}
+
+      - name: Install GTK, GStreamer and libsoup development packages
+        # Still a backstop: a cache miss installs from the mirror, and this bound
+        # fails the job in ten minutes instead of leaving every required check
+        # pending behind a run that is stuck "in progress".
+        timeout-minutes: 10
+        env:
+          PACKAGES: ${{ steps.apt.outputs.packages }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/ember-apt
+          # apt only reads its own archive directory, so stage the cache there.
+          sudo cp -n ~/.cache/ember-apt/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+          # Bound each transfer so a stalled mirror aborts and retries rather than
+          # hanging until the step timeout; apt has no useful default here.
+          APT_OPTS=(-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=3)
+          sudo apt-get update "${APT_OPTS[@]}"
+          # --no-download installs nothing unless every deb is already cached, so
+          # a miss or a changed package set falls back to fetching.
+          sudo apt-get install -y "${APT_OPTS[@]}" --no-download $PACKAGES \
+            || sudo apt-get install -y "${APT_OPTS[@]}" $PACKAGES
+          # Hand the debs back for the post-job cache save.
+          cp -n /var/cache/apt/archives/*.deb ~/.cache/ember-apt/ 2>/dev/null || true
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
