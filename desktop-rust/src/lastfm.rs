@@ -369,12 +369,11 @@ impl LastFmReporter {
                 _ => {}
             },
             Inflight::Now => {
-                if let Err(error) = job.result {
-                    if error.code() == "lastfm_disconnected" {
+                if let Err(error) = job.result
+                    && error.code() == "lastfm_disconnected" {
                         self.connected = false;
                         self.reauth = true;
                     }
-                }
             }
             Inflight::Connect => match job.result {
                 Ok(BridgePayload::LastFm(value)) => {
@@ -628,7 +627,7 @@ async fn request(server: &str, key: &str, body: &Value) -> Result<Value, String>
     message.set_flags(soup::MessageFlags::NO_REDIRECT);
     message
         .request_headers()
-        .unwrap()
+        .ok_or("Invalid request.")?
         .append("Authorization", &format!("Bearer {key}"));
     let bytes = glib::Bytes::from_owned(serde_json::to_vec(body).map_err(|_| "Invalid request.")?);
     message.set_request_body_from_bytes(Some("application/json"), Some(&bytes));
@@ -1140,7 +1139,7 @@ esac
                     .file_name()
                     .and_then(|name| name.to_str())
                     .is_some_and(|name| name.starts_with("lastfm-outbox.json.corrupt-"));
-                backup.then(|| path)
+                backup.then_some(path)
             })
             .next()
     }

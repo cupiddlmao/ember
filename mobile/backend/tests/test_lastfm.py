@@ -151,6 +151,45 @@ class LastFMTests(unittest.TestCase):
         self.service.flush()
         self.assertEqual(self.service.handle({"action":"status"})["pending"], 0)
 
+    def test_invalid_parameter_rejection_does_not_block_later_scrobbles(self):
+        from mobile.backend.lastfm_service import LastFMRejected
+        self.connect()
+        first, second = self.event(), self.event()
+        self.service.handle(first)
+        self.service.handle(second)
+        def call(method, **params):
+            if params["track"] == "Bad":
+                raise LastFMRejected(502, "lastfm_rejected", "no")
+            return {"scrobbles": {"@attr": {"accepted": "1"}}}
+        self.service.call = call
+        with self.service.db() as db:
+            db.execute("UPDATE outbox SET body=json_set(body,'$.track','Bad') WHERE id=?", (first["id"],))
+        self.service.flush()
+        self.service.flush()
+        self.assertEqual(self.service.handle({"action": "status"})["pending"], 0)
+        with self.service.db() as db:
+            states = dict(db.execute("SELECT id,state FROM outbox").fetchall())
+        self.assertEqual(states, {first["id"]: "rejected", second["id"]: "sent"})
+
+    def test_permanent_api_errors_are_rejections_but_others_are_retried(self):
+        from mobile.backend.lastfm_service import LastFMRejected
+        from io import BytesIO
+        for code, expected in ((6, LastFMRejected), (11, LibraryError)):
+            body = ('{"error":%d}' % code).encode()
+            with patch("mobile.backend.lastfm_service.urlopen", lambda *a, **k: BytesIO(body)):
+                with self.assertRaises(LibraryError) as error:
+                    self.service._call("track.scrobble")
+            self.assertIs(type(error.exception), expected)
+
+    def test_status_does_not_hold_the_lock_during_the_upstream_call(self):
+        self.connect()
+        def call(method, **params):
+            self.assertTrue(self.service.lock.acquire(blocking=False))
+            self.service.lock.release()
+            return {}
+        self.service.call = call
+        self.assertTrue(self.service.handle({"action": "status"})["connected"])
+
     def test_album_forwarding_survives_restart_and_old_events_still_work(self):
         self.connect()
         self.service.handle(dict(action="now", title="Song", artist="Artist", album=" Album "))
