@@ -52,6 +52,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install GTK, GStreamer and libsoup development packages
+        # The apt mirror occasionally accepts a connection and then stalls
+        # without progress; the job-level budget is 20 minutes, which is far
+        # too long to wait on an install that normally takes two or three.
+        # This bound fails the job in ten minutes instead of leaving the run
+        # "in progress" and every required check pending behind it.
+        timeout-minutes: 10
         run: |
           sudo apt-get update
           sudo apt-get install -y \
