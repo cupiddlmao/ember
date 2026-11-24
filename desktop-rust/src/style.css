@@ -80,7 +80,7 @@ button.play-button {
   min-height: 30px;
   padding: 0;
   margin: 0 3px;
-  color: @text;
+  color: @sunken;
   background: @accent;
   border-radius: 999px;
 }
@@ -976,8 +976,12 @@ button {
   box-shadow: none;
 }
 
+/* Labels on the accent fill are @sunken, not @text: white on #ef5367 measures
+   3.13:1 (2.64:1 on hover), under the floor for a 12 px label, while the dark
+   ink measures 5.35:1 (6.34:1 on hover). The immersive transport button already
+   used it; now every accent surface does. Destructive confirms opt out below. */
 button.accent {
-  color: @text;
+  color: @sunken;
   background: @accent;
   font-weight: 600;
   padding: 7px 16px;
@@ -986,6 +990,15 @@ button.accent {
 
 button.accent:hover {
   background: @accent-hover;
+}
+
+/* The host theme styles the label node directly, so a button's colour does not
+   reach it the way it reaches an icon. Naming it keeps the icon and its caption
+   the same ink on the accent fill. */
+button.accent label,
+button.play-button label,
+button.lyrics-play-button label {
+  color: @sunken;
 }
 
 button.accent.empty-action {
@@ -1235,8 +1248,66 @@ button.dialog-primary {
   font-size: 12px;
 }
 
+/* The accent fill is already red, so a red-filled Delete is indistinguishable
+   from a benign Create or Save at a glance. Menus already say "destructive"
+   with @destructive ink on overlay (6.71:1), so the confirm says it the same
+   way instead of inventing a third treatment. */
+button.dialog-primary.destructive,
+button.dialog-primary.destructive label {
+  color: @destructive;
+  background: @overlay;
+}
+
+button.dialog-primary.destructive label {
+  background: transparent;
+}
+
 button.dialog-primary.destructive {
+  box-shadow: inset 0 0 0 1px alpha(@destructive, 0.32);
+}
+
+button.dialog-primary.destructive:hover,
+button.dialog-primary.destructive:hover label {
+  color: #ffbcc6;
+}
+
+button.dialog-primary.destructive:hover {
+  background: alpha(@destructive, 0.14);
+}
+
+/* A disabled accent at 40% opacity reads as a smudge rather than as an
+   unavailable action, so it drops to a neutral surface like the play button.
+   The label is named too: the accent ink rule above reaches it directly, and
+   without this it would keep dark text on a dark surface. */
+button.accent:disabled,
+button.accent:disabled label {
+  background: @overlay;
+  color: @text-3;
+  opacity: 1;
+}
+
+/* Text selection was never declared, so it fell through to the system theme's
+   blue: a second accent inside Ember's single one. Kept translucent so the
+   text under it stays readable. */
+entry > selection,
+text > selection,
+label > selection {
+  background: alpha(@accent, 0.45);
+  color: @text;
+}
+
+/* The system theme paints checks in its own blue, which is a second accent
+   sitting inside Ember's single one. */
+checkbutton check:checked,
+checkbutton check:indeterminate {
+  background: @accent;
   color: @sunken;
+  border-color: @accent;
+}
+
+checkbutton check {
+  color: @text-2;
+  border-color: @hairline-strong;
 }
 
 /* Settings */
@@ -1641,8 +1712,9 @@ button.playlist-play {
   border-radius: 6px;
 }
 
+/* No colour here: the same label class sits on an accent Play button and on a
+   raised Shuffle button, and each button's own rule below decides the ink. */
 .playlist-play-label {
-  color: @text;
   font-size: 12px;
   font-weight: 600;
 }
