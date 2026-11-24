@@ -190,9 +190,17 @@ The process requires `ffmpeg` and `node` on `PATH` and exits with a clear messag
 | `EMBER_MAX_AUDIO_MB` | `48` | Maximum size of one prepared file. |
 | `EMBER_MAX_JOBS` | `3` | Concurrent search/audio/playlist/lyrics jobs. |
 | `EMBER_RATE_LIMIT` | `60` | Authenticated requests per client per minute. Failed sign-ins have their own separate limit (10 per minute) and never reduce this budget. Behind a proxy every client shares the proxy address unless `EMBER_TRUSTED_PROXIES` is set. |
-| `EMBER_TRUSTED_PROXIES` | empty | Comma-separated peer addresses of reverse proxies (under Docker this is the bridge gateway, often `172.17.0.1`, not `127.0.0.1`). From these peers the last `X-Forwarded-For` entry is used as the client address. Leave empty if clients connect directly. |
+| `EMBER_TRUSTED_PROXIES` | empty | Comma-separated peer addresses of reverse proxies (under Docker this is the bridge gateway, often `172.17.0.1`, not `127.0.0.1`). From these peers the last `X-Forwarded-For` entry is used as the client address, so the proxy must append to that header — see below. Leave empty if clients connect directly. |
 
 `mobile/backend/.env` is ignored by Git. `.env.example` contains only a placeholder. The iOS app has a separate 512 MiB audio cache; the backend cache is not the phone's cache.
+
+`EMBER_TRUSTED_PROXIES` only works when the proxy **appends** the address it saw to
+`X-Forwarded-For` (`$proxy_add_x_forwarded_for` in nginx; Caddy and Traefik do this by
+default). The server reads only the last entry, because that is the one the proxy wrote
+itself, and ignores anything the client put to its left. A proxy configured to forward
+the client's header unchanged — or a plain TCP forwarder that adds nothing — leaves the
+caller choosing its own rate-limit key, which defeats the limit instead of sharing it
+more fairly. Nothing in the server can tell those two configurations apart.
 
 ### API
 
