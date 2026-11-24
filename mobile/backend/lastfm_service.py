@@ -15,6 +15,14 @@ from urllib.request import Request, urlopen
 
 from .library_store import LibraryError
 
+# Last.fm "invalid parameters" and "invalid resource": the same event can never
+# succeed, so it must leave the queue instead of blocking every later scrobble.
+PERMANENT_ERRORS = {6, 7}
+
+
+class LastFMRejected(LibraryError):
+    """Last.fm refused this specific request and will refuse it again."""
+
 
 class LastFM:
     def __init__(self, settings, call=None):
@@ -65,8 +73,12 @@ class LastFM:
                 if data["error"] == 9:
                     with self.db() as db:
                         db.execute("UPDATE account SET session=NULL WHERE id=1")
+                if data["error"] in PERMANENT_ERRORS:
+                    raise LastFMRejected(502, "lastfm_rejected", "Last.fm did not accept the scrobble.")
                 raise ValueError()
             return data
+        except LastFMRejected:
+            raise
         except Exception:
             raise LibraryError(502, "lastfm_unavailable", "Last.fm could not complete this request. Retry shortly.") from None
 
@@ -125,28 +137,35 @@ class LastFM:
                 seen.add(identity)
         return result
 
+    def _status(self):
+        with self.lock, self.db() as db:
+            session, name = db.execute("SELECT session,name FROM account WHERE id=1").fetchone()
+        connected = bool(session)
+        if connected:
+            # A stored session can be revoked upstream. Verify it on status so
+            # clients cannot display Connected while reporting is already dead.
+            # The network call runs without the lock so a slow Last.fm cannot
+            # stall scrobbles.
+            try:
+                self.call("user.getInfo", sk=session)
+            except Exception:
+                # Any validation failure is transient unless error 9 already
+                # cleared the session; keep working on a temporary outage.
+                pass
+        with self.lock, self.db() as db:
+            session, name = db.execute("SELECT session,name FROM account WHERE id=1").fetchone()
+            pending = db.execute("SELECT count(*) FROM outbox WHERE state='pending'").fetchone()[0]
+        return {"configured": bool(self.key and self.secret), "connected": bool(session), "username": name or "", "pending": pending}
+
     def handle(self, body):
         if not isinstance(body, dict):
             raise LibraryError(400, "invalid_body", "Expected a JSON object.")
         action = body.get("action")
+        if action == "status":
+            return self._status()
         with self.lock:
             with self.db() as db:
                 session, name, token, created = db.execute("SELECT session,name,token,created FROM account WHERE id=1").fetchone()
-                pending = db.execute("SELECT count(*) FROM outbox WHERE state='pending'").fetchone()[0]
-            if action == "status":
-                connected = bool(session)
-                if connected:
-                    # A stored session can be revoked upstream. Verify it on status so
-                    # clients cannot display Connected while reporting is already dead.
-                    try:
-                        self.call("user.getInfo", sk=session)
-                    except Exception:
-                        # Any validation failure is transient unless error 9 already
-                        # cleared the session; keep working on a temporary outage.
-                        with self.db() as db:
-                            session = db.execute("SELECT session FROM account WHERE id=1").fetchone()[0]
-                        connected = bool(session)
-                return {"configured": bool(self.key and self.secret), "connected": connected, "username": name or "", "pending": pending}
             if action == "disconnect":
                 with self.db() as db:
                     db.execute("UPDATE account SET session=NULL,name=NULL,token=NULL,created=NULL WHERE id=1")
@@ -208,28 +227,46 @@ class LastFM:
             return {"ok": True}
 
     def flush(self):
+        """Send the oldest pending scrobble.
+
+        The lock is held only to read and to record the outcome, never across the
+        Last.fm request, so a slow upstream cannot stall status or new listens.
+        """
         with self.lock, self.db() as db:
             session = db.execute("SELECT session FROM account WHERE id=1").fetchone()[0]
             if not session:
                 return
-            for event_id, raw in db.execute("SELECT id,body FROM outbox WHERE state='pending' ORDER BY rowid LIMIT 1").fetchall():
-                payload = json.loads(raw)
-                if payload["timestamp"] < time.time() - 14 * 86400:
-                    db.execute("DELETE FROM outbox WHERE id=?", (event_id,))
-                    continue
-                result = self.call("track.scrobble", sk=session, **payload)
-                scrobbles = result.get("scrobbles", {})
-                accepted = int(scrobbles.get("@attr", {}).get("accepted", 0)) == 1
-                item = scrobbles.get("scrobble", {})
-                if isinstance(item, list):
-                    item = item[0] if item else {}
-                ignored = str(item.get("ignoredMessage", {}).get("code", ""))
-                if not accepted and ignored not in ("1", "2", "3"):
-                    raise LibraryError(502, "lastfm_rejected", "Last.fm did not accept the scrobble.")
-                db.execute("UPDATE outbox SET state=? WHERE id=?", ("sent" if accepted else "rejected", event_id))
-                db.commit()
-                if db.execute("SELECT 1 FROM outbox WHERE state='pending' LIMIT 1").fetchone():
-                    self.wake.set()
+            row = db.execute("SELECT id,body FROM outbox WHERE state='pending' ORDER BY rowid LIMIT 1").fetchone()
+            if row is None:
+                return
+            event_id, raw = row
+            payload = json.loads(raw)
+            if payload["timestamp"] < time.time() - 14 * 86400:
+                db.execute("DELETE FROM outbox WHERE id=?", (event_id,))
+                self.wake.set()
+                return
+        state = "rejected"
+        try:
+            result = self.call("track.scrobble", sk=session, **payload)
+        except LastFMRejected:
+            pass
+        else:
+            scrobbles = result.get("scrobbles", {})
+            accepted = int(scrobbles.get("@attr", {}).get("accepted", 0)) == 1
+            item = scrobbles.get("scrobble", {})
+            if isinstance(item, list):
+                item = item[0] if item else {}
+            ignored = str(item.get("ignoredMessage", {}).get("code", ""))
+            if not accepted and ignored not in ("1", "2", "3"):
+                raise LibraryError(502, "lastfm_rejected", "Last.fm did not accept the scrobble.")
+            state = "sent" if accepted else "rejected"
+        with self.lock, self.db() as db:
+            current = db.execute("SELECT session FROM account WHERE id=1").fetchone()[0]
+            if current != session:
+                return  # Disconnected or switched accounts mid-request; the queue was reset.
+            db.execute("UPDATE outbox SET state=? WHERE id=? AND state='pending'", (state, event_id))
+            if db.execute("SELECT 1 FROM outbox WHERE state='pending' LIMIT 1").fetchone():
+                self.wake.set()
 
     def _work(self):
         while not self.closed.is_set():
