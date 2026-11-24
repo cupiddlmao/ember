@@ -27,7 +27,8 @@ RUN useradd --system --uid 10001 --home /var/lib/ember ember \
     && mkdir -p /var/lib/ember/cache /var/lib/ember/library \
     && chown -R ember:ember /var/lib/ember
 
-ENV PYTHONUNBUFFERED=1 \
+ENV EMBER_GIT_COMMIT=$EMBER_GIT_COMMIT \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     HOME=/var/lib/ember \

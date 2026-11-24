@@ -4,6 +4,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -24,6 +25,19 @@ from .music_service import MusicService, UpstreamError
 from .playlist_service import PlaylistInputError, PlaylistService
 
 VERSION = "0.3.0"
+
+
+def build_commit() -> str:
+    """The commit this server was built from, or "unknown" when unstamped.
+
+    The Dockerfile copies its EMBER_GIT_COMMIT build argument into this variable,
+    so a running container can report the revision it came from rather than only
+    a version tag that can be moved. Read per call rather than at import so the
+    unstamped and stamped cases are both reachable without reimporting.
+    """
+    return os.environ.get("EMBER_GIT_COMMIT", "").strip() or "unknown"
+
+
 DEFAULT_SEARCH_LIMIT = 20
 MAX_QUERY_CHARS = 200
 MAX_RAW_QUERY_CHARS = 512
@@ -214,7 +228,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             return 405
 
         if route_path == "/v1/health":
-            self._send_json(HTTPStatus.OK, {"status": "ok", "version": VERSION})
+            self._send_json(
+                HTTPStatus.OK,
+                {"status": "ok", "version": VERSION, "commit": build_commit()},
+            )
             return HTTPStatus.OK
 
         if route_path == "/v1/search":

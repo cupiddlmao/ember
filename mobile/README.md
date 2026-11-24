@@ -203,7 +203,7 @@ All routes require `Authorization: Bearer <EMBER_API_TOKEN>`. Errors are JSON:
 
 | Route | Result |
 | --- | --- |
-| `GET /v1/health` | `{"status":"ok","version":"0.3.0"}` |
+| `GET /v1/health` | `{"status":"ok","version":"0.3.0","commit":"bc01946"}`; `commit` is the image's build commit, or `unknown` when the image was built without it |
 | `GET /v1/search?q=…&limit=20` | `{"tracks":[…]}`; query max 200 chars, limit clamped to 1–25 |
 | `GET /v1/tracks/{11-char-id}/audio` | `audio/mp4` M4A bytes |
 | `GET /v1/playlists/preview?url=…&limit=50` | Playlist summary plus the first bounded page |

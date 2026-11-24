@@ -1,7 +1,8 @@
 # Ember-owned playlist library — backend 0.3.0
 
 Deployed and serving 0.3.0 at the existing `/ember` address: `GET /v1/health` returns
-`{"status": "ok", "version": "0.3.0"}`, and the library and Last.fm routes answer with the
+`{"status": "ok", "version": "0.3.0", "commit": "bc01946"}`, where `commit` is the revision the
+image was built from, and the library and Last.fm routes answer with the
 existing access key. SwiftUI integration is implemented in source (macOS build/device checks
 pending); Rust integration is implemented and works against the live server (native
 interaction checks pending).
