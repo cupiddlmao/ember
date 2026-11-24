@@ -189,7 +189,8 @@ The process requires `ffmpeg` and `node` on `PATH` and exits with a clear messag
 | `EMBER_CACHE_MAX_MB` | `2048` | Backend audio cache budget. |
 | `EMBER_MAX_AUDIO_MB` | `48` | Maximum size of one prepared file. |
 | `EMBER_MAX_JOBS` | `3` | Concurrent search/audio/playlist/lyrics jobs. |
-| `EMBER_RATE_LIMIT` | `60` | Requests per client per minute. Tailscale Serve makes requests appear to come from loopback, so in practice this is one shared budget. |
+| `EMBER_RATE_LIMIT` | `60` | Authenticated requests per client per minute. Failed sign-ins have their own separate limit (10 per minute) and never reduce this budget. Behind a proxy every client shares the proxy address unless `EMBER_TRUSTED_PROXIES` is set. |
+| `EMBER_TRUSTED_PROXIES` | empty | Comma-separated peer addresses of reverse proxies (under Docker this is the bridge gateway, often `172.17.0.1`, not `127.0.0.1`). From these peers the last `X-Forwarded-For` entry is used as the client address. Leave empty if clients connect directly. |
 
 `mobile/backend/.env` is ignored by Git. `.env.example` contains only a placeholder. The iOS app has a separate 512 MiB audio cache; the backend cache is not the phone's cache.
 
