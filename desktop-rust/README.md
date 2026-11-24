@@ -254,6 +254,14 @@ convert ../screenshots/matrix/1180-home.png \
 `WM_NORMAL_HINTS` carries the same offset: 830×630 for 780×580 of content.
 Verify the cropped content size, not the raw PNG.
 
+`EMBER_UI_PANEL` (`queue`, `lyrics` or `lyrics-fullscreen`) and `EMBER_UI_DIALOG`
+(`settings`, `create`, `rename` or `delete`) open a surface that sits behind a
+click, which is the only way to photograph the panels, the immersive lyrics view
+and the four dialogs from a scripted capture. Unknown names are ignored rather
+than guessed at, so a typo cannot quietly capture something else; a dialog that
+cannot open yet is retried until the first library response has landed, because
+opening over a busy pane would photograph a half-filled form.
+
 The focused tests cover queue occurrence IDs, Play next ordering, upcoming-only
 edits, stale resolve rejection, paused preparation, stop/retry, single
 end-of-track advancement, lyric states, timestamp validation, bridge response
@@ -293,6 +301,13 @@ local filesystem scanning, session persistence and account sync remain out of
 scope.
 There is no disk artwork cache, so covers require network access on a new run.
 The Rust client is the only desktop surface; provider account sync is not implemented.
+
+Ember does not follow the desktop's text-scale setting. Every font size is
+declared in px, GTK 4 exposes no app-side text scale (`text-scaling-factor` is
+a GTK 3 setting and `GDK_DPI_SCALE` is ignored), and doubling the only size an
+app can move leaves the UI pixel-identical. See *Captures* in
+[ADR 0004](../docs/adr/0004-craft-done.md) for the measurement and what a fix
+would cost.
 
 Track three-dot menus in search and shared playlists include **Song radio**.
 Last.fm chooses up to12 related tracks on the configured Ember backend; YouTube
