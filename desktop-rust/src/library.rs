@@ -325,14 +325,13 @@ fn close_on_escape(window: &gtk4::Window) {
     let controller = gtk4::EventControllerKey::new();
     let target = window.downgrade();
     controller.connect_key_pressed(move |_, key, _, _| {
-        if key == gdk::Key::Escape {
-            if let Some(window) = target.upgrade() {
+        if key == gdk::Key::Escape
+            && let Some(window) = target.upgrade() {
                 if window.is_sensitive() {
                     window.close();
                 }
                 return glib::Propagation::Stop;
             }
-        }
         glib::Propagation::Proceed
     });
     window.add_controller(controller);
@@ -751,6 +750,7 @@ fn close_popover(popover: &glib::WeakRef<gtk4::Popover>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn playlist_song_row(
     pane: &Rc<RefCell<LibraryPane>>,
     detail_id: &str,
@@ -1077,13 +1077,12 @@ impl LibraryPane {
             {
                 return glib::Propagation::Proceed;
             }
-            if let Some(parent) = p.parent.upgrade() {
-                if gtk4::prelude::GtkWindowExt::focus(&parent)
+            if let Some(parent) = p.parent.upgrade()
+                && gtk4::prelude::GtkWindowExt::focus(&parent)
                     .is_some_and(|focus| focus.is::<gtk4::Editable>())
                 {
                     return glib::Propagation::Proceed;
                 }
-            }
             if key == gdk::Key::Escape {
                 p.type_jump = TypeJump::default();
                 return glib::Propagation::Proceed;
@@ -1217,11 +1216,10 @@ impl LibraryPane {
                 Ok(state) => {
                     let acknowledged = state.acknowledged;
                     p.state = state;
-                    if acknowledged {
-                        if let Some((window, _)) = p.popup.take() {
+                    if acknowledged
+                        && let Some((window, _)) = p.popup.take() {
                             window.close();
                         }
-                    }
                 }
                 Err(_) => {
                     p.state.online = false;
@@ -1602,8 +1600,8 @@ impl LibraryPane {
         let scroll = self.scroll.downgrade();
         // Let newly appended rows receive their layout before scrolling to the match.
         glib::timeout_add_local_once(Duration::from_millis(50), move || {
-            if let (Some(songs), Some(scroll)) = (songs.upgrade(), scroll.upgrade()) {
-                if let Some(bounds) = row.compute_bounds(&songs) {
+            if let (Some(songs), Some(scroll)) = (songs.upgrade(), scroll.upgrade())
+                && let Some(bounds) = row.compute_bounds(&songs) {
                     if let Some(play) = row.first_child() {
                         play.grab_focus();
                     }
@@ -1611,7 +1609,6 @@ impl LibraryPane {
                         .vadjustment()
                         .clamp_page(bounds.y() as f64, (bounds.y() + bounds.height()) as f64);
                 }
-            }
         });
     }
 
@@ -1749,16 +1746,15 @@ impl LibraryPane {
         let s = status.clone();
         entry.connect_activate(move |e| {
             if let Some(p) = weak.upgrade() {
-                Self::submit_create(&p, &e, &s);
+                Self::submit_create(&p, e, &s);
             }
         });
         let weak = Rc::downgrade(pane);
         window.connect_close_request(move |_| {
-            if let Some(p) = weak.upgrade() {
-                if let Ok(mut p) = p.try_borrow_mut() {
+            if let Some(p) = weak.upgrade()
+                && let Ok(mut p) = p.try_borrow_mut() {
                     p.popup = None;
                 }
-            }
             glib::Propagation::Proceed
         });
         p.popup = Some((window.clone(), status));
@@ -1859,16 +1855,15 @@ impl LibraryPane {
         let revision = detail.revision;
         entry.connect_activate(move |e| {
             if let Some(p) = weak.upgrade() {
-                Self::submit_rename(&p, &e, &s, &id, revision);
+                Self::submit_rename(&p, e, &s, &id, revision);
             }
         });
         let weak = Rc::downgrade(pane);
         window.connect_close_request(move |_| {
-            if let Some(p) = weak.upgrade() {
-                if let Ok(mut p) = p.try_borrow_mut() {
+            if let Some(p) = weak.upgrade()
+                && let Ok(mut p) = p.try_borrow_mut() {
                     p.popup = None;
                 }
-            }
             glib::Propagation::Proceed
         });
         p.popup = Some((window.clone(), status));
@@ -2062,11 +2057,10 @@ impl LibraryPane {
         window.set_child(Some(&content));
         let weak = Rc::downgrade(pane);
         window.connect_close_request(move |_| {
-            if let Some(p) = weak.upgrade() {
-                if let Ok(mut p) = p.try_borrow_mut() {
+            if let Some(p) = weak.upgrade()
+                && let Ok(mut p) = p.try_borrow_mut() {
                     p.popup = None;
                 }
-            }
             glib::Propagation::Proceed
         });
         p.popup = Some((window.clone(), status));
