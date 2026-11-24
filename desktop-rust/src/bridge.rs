@@ -60,7 +60,7 @@ impl BridgeError {
     fn exited() -> Self {
         Self::new(
             "bridge",
-            "The Python music bridge exited before returning a result.",
+            "Ember lost its connection to the library. Try again.",
         )
     }
 }

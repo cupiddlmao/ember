@@ -393,7 +393,7 @@ impl LastFmReporter {
                 Err(error) => self.control_error = Some(error.message().to_owned()),
                 _ => {
                     self.control_error =
-                        Some("The Last.fm bridge returned the wrong result type.".to_owned())
+                        Some("Last.fm returned an answer Ember couldn't use. Try again.".to_owned())
                 }
             },
             Inflight::Finish => match job.result {
@@ -419,7 +419,7 @@ impl LastFmReporter {
                 Err(error) => self.control_error = Some(error.message().to_owned()),
                 _ => {
                     self.control_error =
-                        Some("The Last.fm bridge returned the wrong result type.".to_owned())
+                        Some("Last.fm returned an answer Ember couldn't use. Try again.".to_owned())
                 }
             },
             Inflight::Disconnect => match job.result {
@@ -436,7 +436,7 @@ impl LastFmReporter {
                 Err(error) => self.control_error = Some(error.message().to_owned()),
                 _ => {
                     self.control_error =
-                        Some("The Last.fm bridge returned the wrong result type.".to_owned())
+                        Some("Last.fm returned an answer Ember couldn't use. Try again.".to_owned())
                 }
             },
         }

@@ -26,6 +26,13 @@ const HOME_CARD_GAP: u32 = 18;
 const HOME_CARD_MIN_WIDTH: i32 = 150;
 const PROGRESS_MAX: f64 = 1000.0;
 
+/// The corrective action for a missing music bridge. This one message names the
+/// variable and the restart because for a setup failure, that *is* the fix; the
+/// brief asks setup alerts to carry the corrective action. Every surface that
+/// hits the same root cause says it the same way.
+const BRIDGE_NOT_CONFIGURED: &str =
+    "Ember's music bridge isn't set up. Set EMBER_CHECKOUT_ROOT and restart Ember.";
+
 mod square_artwork {
     use gtk4::subclass::prelude::*;
     use gtk4::{glib, prelude::*};
@@ -1715,10 +1722,7 @@ impl AppUi {
         let result = match self.bridge.as_ref() {
             Some(bridge) => bridge.submit_search(&query),
             None => {
-                self.set_status(
-                    "The Python music bridge is not configured. Set EMBER_CHECKOUT_ROOT and restart.",
-                    true,
-                );
+                self.set_status(BRIDGE_NOT_CONFIGURED, true);
                 return;
             }
         };
@@ -1754,7 +1758,7 @@ impl AppUi {
             }
             JobKind::Search if job.seq == self.search_seq => match job.result {
                 Ok(BridgePayload::Search(tracks)) => self.show_search_results(tracks),
-                Ok(_) => self.set_status("The music bridge returned the wrong result type.", true),
+                Ok(_) => self.set_status("Search failed. Try again.", true),
                 Err(error) => {
                     self.cancel_radio();
                     self.clear_results("Search failed.");
@@ -1763,12 +1767,14 @@ impl AppUi {
             },
             JobKind::Resolve if job.seq == self.resolve_seq => match job.result {
                 Ok(BridgePayload::Resolve(data)) => self.handle_resolved(data),
-                Ok(_) => self.fail_playback("The music bridge returned the wrong result type."),
+                Ok(_) => {
+                    self.fail_playback("This recording couldn't be prepared. Try again.")
+                }
                 Err(error) => self.fail_playback(error.message()),
             },
             JobKind::Lyrics if job.seq == self.lyrics_seq => match job.result {
                 Ok(BridgePayload::Lyrics(data)) => self.handle_lyrics(data),
-                Ok(_) => self.lyrics_failed("The lyrics bridge returned the wrong result type."),
+                Ok(_) => self.lyrics_failed("Lyrics didn't load. Try again."),
                 Err(error) => self.lyrics_failed(error.message()),
             },
             JobKind::LastFm => {
@@ -1970,7 +1976,7 @@ impl AppUi {
             self.playback.fail();
             self.set_play_icon(false);
             self.refresh_transport();
-            self.set_status("The Python music bridge is not configured.", true);
+            self.set_status(BRIDGE_NOT_CONFIGURED, true);
             return;
         };
         let seq = match bridge.submit_resolve(&entry.track) {
@@ -3336,7 +3342,7 @@ impl AppUi {
         self.refresh_fullscreen_metadata();
         self.refresh_fullscreen_backdrop();
         let Some(bridge) = self.bridge.as_ref() else {
-            self.lyrics_failed("Lyrics need the checkout Python bridge.");
+            self.lyrics_failed(BRIDGE_NOT_CONFIGURED);
             return;
         };
         bridge.cancel_lyrics();
