@@ -14,7 +14,7 @@ import urllib.request
 from typing import Any
 
 LRCLIB_GET = "https://lrclib.net/api/get"
-USER_AGENT = "EmberMobile/0.2.0 (https://github.com/cupiddlmao/ember)"
+USER_AGENT = "EmberMobile/0.3.0 (https://github.com/cupiddlmao/ember)"
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_LYRICS_FILE_BYTES = 512_000
 MAX_LINES = 5000
