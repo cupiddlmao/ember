@@ -46,6 +46,36 @@ jobs:
         working-directory: desktop-rust
         run: python -m unittest -q test_bridge.py test_cache.py test_library.py
 
+      # Same property the IPA build enforces: an artifact must record the commit
+      # it came from, so a running container can be traced back to a revision
+      # instead of only to a version tag that can be moved.
+      - name: Build the backend image recording this commit
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg EMBER_GIT_COMMIT="${{ github.sha }}" \
+            -f mobile/backend/Dockerfile \
+            -t ember-mobile-api:ci \
+            .
+
+      - name: Verify the backend image records the dispatched ref
+        env:
+          DISPATCHED_REF: ${{ github.ref }}
+          DISPATCHED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          RECORDED=$(docker image inspect --format \
+            '{{if .Config.Labels}}{{index .Config.Labels "org.opencontainers.image.revision"}}{{end}}' \
+            ember-mobile-api:ci || true)
+          echo "dispatched ref: $DISPATCHED_REF"
+          echo "dispatched sha: $DISPATCHED_SHA"
+          echo "image revision: $RECORDED"
+          if [ "$RECORDED" != "$DISPATCHED_SHA" ]; then
+            echo "::error::The image records '$RECORDED', but $DISPATCHED_REF was dispatched at $DISPATCHED_SHA"
+            exit 1
+          fi
+          echo "Image matches $DISPATCHED_REF"
+
   rust:
     name: Rust desktop
     runs-on: ubuntu-latest
