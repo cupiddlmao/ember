@@ -23,8 +23,12 @@ struct APIClient {
 
 enum APIError: LocalizedError {
     case invalidConfiguration(String)
+    case unauthorized
     var errorDescription: String? {
-        switch self { case .invalidConfiguration(let message): return message }
+        switch self {
+        case .invalidConfiguration(let message): return message
+        case .unauthorized: return "The server rejected the access key."
+        }
     }
 }
 
