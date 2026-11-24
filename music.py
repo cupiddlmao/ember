@@ -170,11 +170,13 @@ def resolve(track):
     return normalize(info), stream
 
 
-def download_audio(track, folder, progress=None):
+def download_audio(track, folder, progress=None, max_bytes=None):
     """Download an audio-only copy into a private temporary folder.
 
     Returns ``(normalized_track, file_path)``. The caller owns the folder and
     is responsible for moving the file into its permanent or cached location.
+    ``max_bytes`` makes yt-dlp refuse, or abort mid-transfer, a larger stream so an
+    unexpectedly long recording cannot fill the disk before any size check runs.
     """
     video, _playlist = music_link(track['uri'])
     if not video:
@@ -197,6 +199,8 @@ def download_audio(track, folder, progress=None):
     }
     if hooks:
         options['progress_hooks'] = hooks
+    if max_bytes:
+        options['max_filesize'] = int(max_bytes)
     try:
         with yt_dlp.YoutubeDL(options) as client:
             info = client.extract_info('https://www.youtube.com/watch?v=' + video, download=True)
@@ -214,6 +218,9 @@ def download_audio(track, folder, progress=None):
     source = max(candidates, key=lambda path: path.stat().st_size)
     if source.stat().st_size <= 0:
         raise RuntimeError('YouTube returned an empty audio file.')
+    if max_bytes and source.stat().st_size > max_bytes:
+        source.unlink(missing_ok=True)
+        raise RuntimeError('This recording is larger than the allowed audio size.')
     return normalize(info), source
 
 
