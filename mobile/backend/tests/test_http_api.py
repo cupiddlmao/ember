@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import tempfile
 import threading
 import unittest
 import urllib.parse
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from mobile.backend.config import Settings
 from mobile.backend.http_api import RateLimiter, create_server
@@ -161,6 +163,19 @@ class ApiTests(unittest.TestCase):
             status, content_type, body = self.request("/v1/health", token=token)
             self.assertEqual(status, 401)
             self.assertEqual(self.error_body(body)[0], "unauthorized")
+
+    def test_health_reports_the_build_commit(self):
+        with patch.dict(os.environ, {"EMBER_GIT_COMMIT": "bc01946"}):
+            status, _, body = self.request("/v1/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["commit"], "bc01946")
+
+        # An image built without the argument must still answer, and say so.
+        unstamped = {k: v for k, v in os.environ.items() if k != "EMBER_GIT_COMMIT"}
+        with patch.dict(os.environ, unstamped, clear=True):
+            status, _, body = self.request("/v1/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["commit"], "unknown")
 
     def test_malformed_authorization_is_rejected(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
