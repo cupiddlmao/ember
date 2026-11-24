@@ -407,6 +407,23 @@ fn activate(application: &gtk4::Application) {
     install_callbacks(&ui, rx, player_rx, library_rx, mpris_rx);
     crate::library::LibraryPane::request(&library, serde_json::json!({"operation":"refresh"}));
     ui.borrow().window.present();
+
+    // Verification-matrix entry points. These surfaces sit behind a click and
+    // nothing here can move a real pointer, so a capture asks for them at
+    // launch. Unset, they do nothing at all.
+    match crate::viewport::capture_panel().as_deref() {
+        Some("queue") => ui.borrow_mut().show_queue_panel(),
+        Some("lyrics") => ui.borrow_mut().show_lyrics_panel(),
+        Some("lyrics-fullscreen") => ui.borrow_mut().open_lyrics_fullscreen(),
+        _ => {}
+    }
+    if let Some(dialog) = crate::viewport::capture_dialog() {
+        if dialog == "settings" {
+            settings.0.present();
+        } else {
+            crate::library::LibraryPane::open_capture_dialog(&library, dialog);
+        }
+    }
 }
 
 fn settings_help(text: &str) -> gtk4::Label {
