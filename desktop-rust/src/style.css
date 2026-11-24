@@ -1070,7 +1070,8 @@ button.library-add:disabled {
 
 button.playlist-row {
   min-height: 36px;
-  padding: 6px 10px;
+  padding: 6px 10px 6px 7px;
+  border-left: 3px solid transparent;
   color: @text;
   background: transparent;
   border-radius: 6px;
@@ -1083,8 +1084,8 @@ button.playlist-row:hover {
 }
 
 button.playlist-row.selected {
-  background: alpha(@accent, 0.1);
-  box-shadow: inset 3px 0 @accent;
+  background-color: alpha(@accent, 0.1);
+  border-left-color: @accent;
 }
 
 .playlist-icon {
@@ -1503,7 +1504,12 @@ scrollbar.sidebar-playlists-scroll,
 
 button.playlist-nav-row {
   min-height: 0;
-  padding: 4px 7px;
+  /* The 3 px left bar is a border, not an inset box-shadow: GTK clips an inset
+     shadow to the rounded corner, so the "bar" rendered as two corner arcs and
+     the straight middle never appeared. The border is transparent when the row
+     is not selected and padding gives the 3 px back, so labels do not move. */
+  padding: 4px 7px 4px 4px;
+  border-left: 3px solid transparent;
   color: @text;
   background: transparent;
   border-radius: 6px;
@@ -1517,8 +1523,8 @@ button.playlist-nav-row:hover {
 
 button.playlist-nav-row.selected {
   color: @text;
-  background: @overlay;
-  box-shadow: inset 2px 0 @accent;
+  background-color: @overlay;
+  border-left-color: @accent;
 }
 
 .playlist-nav-name {
