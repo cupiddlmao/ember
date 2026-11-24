@@ -140,7 +140,7 @@ class MusicService:
     def _create_audio(self, video_id: str, work: Path) -> Path:
         uri = f"https://music.youtube.com/watch?v={video_id}"
         try:
-            _track, source = music.download_audio({"uri": uri}, work)
+            _track, source = music.download_audio({"uri": uri}, work, max_bytes=self.max_audio_bytes)
         except Exception:
             raise UpstreamError(
                 "YouTube could not provide this audio. It may be unavailable, "
