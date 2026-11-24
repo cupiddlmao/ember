@@ -511,7 +511,7 @@ fn build_settings_window(
     shared.append(&feedback);
     let lastfm = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     lastfm.add_css_class("settings-lastfm");
-    lastfm.append(&label("Last.fm", "settings-label"));
+    lastfm.append(&label("Last.fm", "settings-heading"));
     let lastfm_status = settings_help("Checking Last.fm…");
     lastfm.append(&lastfm_status);
     let lastfm_connect = gtk4::Button::with_label("Connect Last.fm");

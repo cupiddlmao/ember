@@ -1238,10 +1238,10 @@ window.settings-window {
 }
 
 .settings-heading {
-  color: @text-2;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.2px;
+  color: @text;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
 .settings-label {
@@ -1478,6 +1478,12 @@ button.playlist-nav-row.selected .playlist-nav-meta {
   padding: 0;
 }
 
+.playlist-card-cover .cover-initial {
+  color: @text-3;
+  font-size: 28px;
+  padding-bottom: 0;
+}
+
 .cover-placeholder {
   background: @overlay;
   border-radius: 6px;
@@ -1498,6 +1504,20 @@ button.playlist-nav-row.selected .playlist-nav-meta {
 
 .library-toolbar {
   min-height: 31px;
+}
+
+.library-action {
+  color: @text-2;
+  padding: 4px;
+  min-height: 0;
+  min-width: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.library-action:hover {
+  color: @text;
+  background: @overlay;
 }
 
 .library-status {
@@ -1524,6 +1544,10 @@ button.playlist-nav-row.selected .playlist-nav-meta {
 .hero-cover.compact {
   min-width: 160px;
   min-height: 160px;
+}
+
+.playlist-hero-info {
+  margin-left: 20px;
 }
 
 .playlist-hero-title {

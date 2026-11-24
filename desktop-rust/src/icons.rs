@@ -1,9 +1,14 @@
-//! Bundled 24 px line icons for the desktop shell.
+//! Bundled 24 px icons for the desktop shell.
 //!
 //! GTK normally resolves `*-symbolic` names from the host icon theme, which
 //! makes the app look different on Breeze, Adwaita, Papirus, and so on. These
 //! SVGs are embedded in the binary and written to a private theme directory;
 //! GTK is then pointed at that theme for this process only.
+//!
+//! Every icon is drawn with filled paths only. Some GTK builds rasterize
+//! symbolic icons with a renderer that honours `fill` but drops `stroke`,
+//! which turned a stroked refresh arrow into a dot and erased stroked lines
+//! entirely. Fills survive everywhere.
 
 use gtk4::gdk;
 use std::fs;
@@ -27,87 +32,87 @@ Context=Actions
 const ICONS: &[(&str, &str)] = &[
     (
         "audio-volume-high-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h4L13 5v14l-5-4.5H4z"/><path d="M16 9a4.2 4.2 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M4 9h3.4L12.6 4.6v14.8L7.4 15H4z"/><path fill="#2e3436" d="M15.4 8.9a4.6 4.6 0 0 1 0 6.2l-1.4-1.3a2.8 2.8 0 0 0 0-3.6z"/><path fill="#2e3436" d="M18 6.4a8 8 0 0 1 0 11.2l-1.4-1.3a6.2 6.2 0 0 0 0-8.6z"/></svg>"##,
     ),
     (
         "folder-music-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12.5 11.5v4.8"/><circle cx="10.9" cy="16.3" r="1.6"/><path d="m12.5 11.5 3.4-1v3.6"/><circle cx="14.3" cy="14.1" r="1.6"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M3.5 7.4a2 2 0 0 1 2-2h4.1l2 2h6.9a2 2 0 0 1 2 2v7.7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2zm2 1.8v7.9h13V9.2h-7.6l-2-2H5.5z"/><path fill="#2e3436" d="M12.4 11.5h1.7v4.9h-1.7z"/><path fill="#2e3436" d="M12.4 11.5l4.2-1.1v1.8l-4.2 1.1z"/><circle cx="10.9" cy="16.4" r="1.6" fill="#2e3436"/><circle cx="15.1" cy="15.4" r="1.6" fill="#2e3436"/></svg>"##,
     ),
     (
         "go-down-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M12 17.2 5 10.2l1.5-1.5L12 14.2l5.5-5.5 1.5 1.5z"/></svg>"##,
     ),
     (
         "go-home-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 10.5 8.5-7 8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M9.5 20v-5h5v5"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M12 3.2 2.9 11.1l1.3 1.5L12 6.1l7.8 6.5 1.3-1.5z"/><path fill="#2e3436" d="M5.4 9.4h2v10.1h-2zM16.6 9.4h2v10.1h-2zM5.4 19.5h13.2v2H5.4z"/><path fill="#2e3436" d="M9.6 16.5h4.8v5H9.6z"/></svg>"##,
     ),
     (
         "go-up-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M12 6.8 5 13.8l1.5 1.5L12 9.8l5.5 5.5 1.5-1.5z"/></svg>"##,
     ),
     (
         "list-add-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M11 4.5h2V11h6.5v2H13v6.5h-2V13H4.5v-2H11z"/></svg>"##,
     ),
     (
         "media-optical-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2" fill="#2e3436" stroke="none"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zm0 1.9a6.6 6.6 0 1 1 0 13.2 6.6 6.6 0 0 1 0-13.2z"/><circle cx="12" cy="12" r="2" fill="#2e3436"/></svg>"##,
     ),
     (
         "media-playback-pause-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="#2e3436"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="#2e3436"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="#2e3436"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="#2e3436"/></svg>"##,
     ),
     (
         "media-playback-start-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M8 5.2 19 12 8 18.8z" fill="#2e3436"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M8 5.2 19 12 8 18.8z" fill="#2e3436"/></svg>"##,
     ),
     (
         "media-playback-stop-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="1.8" fill="#2e3436"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.8" fill="#2e3436"/></svg>"##,
     ),
     (
         "media-playlist-shuffle-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h4c4.5 0 6.5 10 11 10h1"/><path d="m17 4 3 3-3 3"/><path d="M4 17h4c2.3 0 3.7-2.6 5.2-5.3"/><path d="m17 14 3 3-3 3"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M4 6.6h4.3c1.9 0 3.2 1.5 4.4 3.3l1.2 1.9c1 1.6 1.8 2.6 3 2.6h1.6v2h-1.6c-2.3 0-3.7-1.6-4.9-3.4l-1.2-1.9c-1-1.5-1.7-2.5-2.5-2.5H4z"/><path fill="#2e3436" d="M4 15.6h4.3c1 0 1.7-.7 2.4-1.7l1.1 1.7c-.9 1.2-2 2-3.5 2H4z"/><path fill="#2e3436" d="M16.2 4.4 21 7.6l-4.8 3.2z"/><path fill="#2e3436" d="M16.2 13.4 21 16.6l-4.8 3.2z"/></svg>"##,
     ),
     (
         "media-skip-backward-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5v14"/><path d="M19 6v12L9 12z" fill="#2e3436"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M5 5h2v14H5z"/><path d="M19 6v12L9 12z" fill="#2e3436"/></svg>"##,
     ),
     (
         "media-skip-forward-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5v14"/><path d="M5 6v12l10-6z" fill="#2e3436"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M17 5h2v14h-2z"/><path d="M5 6v12l10-6z" fill="#2e3436"/></svg>"##,
     ),
     (
         "system-search-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M10.5 3.8a6.7 6.7 0 1 0 0 13.4 6.7 6.7 0 0 0 0-13.4zm0 1.9a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6z"/><path fill="#2e3436" d="M15.3 13.9 21 19.6 19.6 21 13.9 15.3z"/></svg>"##,
     ),
     (
         "text-x-generic-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4"/><path d="M9 12h6M9 15.5h6"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M6.5 3.5h7.3L18 7.7v12.8H6.5zm2 1.8v11.2h7.5V8.4h-3.4V5.3z"/><path fill="#2e3436" d="M13.6 3.9 18 8.3h-4.4z"/><path fill="#2e3436" d="M9 12h6v1.7H9zM9 15.4h6v1.7H9z"/></svg>"##,
     ),
     (
         "view-fullscreen-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9V3.5H9"/><path d="M15 3.5h5.5V9"/><path d="M20.5 15v5.5H15"/><path d="M9 20.5H3.5V15"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M3.5 3.5h5.6v2H5.5v3.6h-2zM14.9 3.5h5.6v5.6h-2V5.5h-3.6zM18.5 14.9h2v5.6h-5.6v-2h3.6zM3.5 14.9h2v3.6h3.6v2H3.5z"/></svg>"##,
     ),
     (
         "view-list-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round"><circle cx="4.5" cy="6.5" r="1" fill="#2e3436" stroke="none"/><circle cx="4.5" cy="12" r="1" fill="#2e3436" stroke="none"/><circle cx="4.5" cy="17.5" r="1" fill="#2e3436" stroke="none"/><path d="M8 6.5h11M8 12h11M8 17.5h11"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="4.5" cy="6.5" r="1.6" fill="#2e3436"/><circle cx="4.5" cy="12" r="1.6" fill="#2e3436"/><circle cx="4.5" cy="17.5" r="1.6" fill="#2e3436"/><path fill="#2e3436" d="M8 5.6h11.5v1.8H8zM8 11.1h11.5v1.8H8zM8 16.6h11.5v1.8H8z"/></svg>"##,
     ),
     (
         "view-more-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="5" cy="12" r="1.4" fill="#2e3436"/><circle cx="12" cy="12" r="1.4" fill="#2e3436"/><circle cx="19" cy="12" r="1.4" fill="#2e3436"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4" fill="#2e3436"/><circle cx="12" cy="12" r="1.4" fill="#2e3436"/><circle cx="19" cy="12" r="1.4" fill="#2e3436"/></svg>"##,
     ),
     (
         "view-refresh-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M19.99 9.09a8.5 8.5 0 1 0 0 5.82L18.2 14.26a6.6 6.6 0 1 1 0-4.52z"/><path fill="#2e3436" d="M18.2 9.2 22.8 12l-4.6 2.8z"/></svg>"##,
     ),
     (
         "view-restore-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v5H3"/><path d="M16 3.5v5h5"/><path d="M21 16h-5v5"/><path d="M3 16h5v5"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M8 3.5h2v2H5.5v4.5h-2V4.5a1 1 0 0 1 1-1zM14 3.5h5.5a1 1 0 0 1 1 1v5.5h-2V5.5H14zM18.5 14h2v5.5a1 1 0 0 1-1 1H14v-2h4.5zM3.5 14h2v4.5H10v2H4.5a1 1 0 0 1-1-1z"/></svg>"##,
     ),
     (
         "window-close-symbolic",
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2e3436" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" d="M6.4 4.9 12 10.5l5.6-5.6 1.5 1.5L13.5 12l5.6 5.6-1.5 1.5L12 13.5l-5.6 5.6-1.5-1.5L10.5 12 4.9 6.4z"/></svg>"##,
     ),
 ];
 
@@ -159,6 +164,23 @@ mod tests {
             assert!(
                 svg.contains(r#"viewBox="0 0 24 24""#),
                 "icon has no 24 px view box: {name}"
+            );
+        }
+    }
+
+    /// Some GTK builds rasterize symbolic icons with a renderer that drops
+    /// strokes, which reduces a stroked arrow to a dot and erases stroked
+    /// lines. Keep every icon fill-only so it renders the same everywhere.
+    #[test]
+    fn icons_paint_with_fills_only() {
+        for (name, svg) in ICONS {
+            assert!(
+                !svg.contains("stroke"),
+                "icon must not rely on strokes: {name}"
+            );
+            assert!(
+                svg.contains(r##"fill="#2e3436""##),
+                "icon paints nothing without a fill: {name}"
             );
         }
     }

@@ -220,7 +220,13 @@ fn playlist_initial(name: &str) -> String {
     name.trim()
         .chars()
         .next()
-        .map(|character| character.to_string())
+        .map(|character| {
+            character
+                .to_uppercase()
+                .next()
+                .unwrap_or(character)
+                .to_string()
+        })
         .unwrap_or_else(|| "?".into())
 }
 fn shuffled_tracks(tracks: &[Track]) -> Vec<Track> {
@@ -284,7 +290,10 @@ fn button(text: &str) -> gtk4::Button {
     gtk4::Button::with_label(text)
 }
 fn action_button(icon: &str, accessible: &str) -> gtk4::Button {
-    let button = gtk4::Button::from_icon_name(icon);
+    let button = gtk4::Button::new();
+    let glyph = gtk4::Image::from_icon_name(icon);
+    glyph.set_pixel_size(18);
+    button.set_child(Some(&glyph));
     button.add_css_class("library-action");
     button.set_tooltip_text(Some(accessible));
     button.update_property(&[gtk4::accessible::Property::Label(accessible)]);
@@ -923,7 +932,10 @@ impl LibraryPane {
         toolbar.set_margin_bottom(2);
         let title = label("Library", "page-title");
         title.set_hexpand(true);
-        let refresh = action_button("view-refresh-symbolic", "Refresh library");
+        let refresh = button("Refresh");
+        refresh.add_css_class("library-secondary");
+        refresh.set_tooltip_text(Some("Refresh library"));
+        refresh.update_property(&[gtk4::accessible::Property::Label("Refresh library")]);
         refresh.set_hexpand(true);
         refresh.set_halign(gtk4::Align::End);
         refresh.set_valign(gtk4::Align::Center);
@@ -2127,6 +2139,7 @@ mod tests {
     fn playlist_initial_handles_wide_and_emoji_names() {
         assert_eq!(playlist_initial("東京"), "東");
         assert_eq!(playlist_initial("🎵 mix"), "🎵");
+        assert_eq!(playlist_initial("things"), "T");
         assert_eq!(playlist_initial(""), "?");
     }
 
@@ -2679,6 +2692,72 @@ mod tests {
         assert!(
             pane.home_flow.first_child().is_none(),
             "the paired card sits in the lead, not the rail"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a native GTK display; run with --ignored --test-threads=1"]
+    fn hero_text_starts_clear_of_the_cover() {
+        gtk4::init().expect("GTK display");
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_string(include_str!("style.css"));
+        gtk4::style_context_add_provider_for_display(
+            &gdk::Display::default().unwrap(),
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        let application = gtk4::Application::new(None::<&str>, Default::default());
+        application
+            .register(None::<&gtk4::gio::Cancellable>)
+            .unwrap();
+        let parent = gtk4::ApplicationWindow::new(&application);
+        parent.set_default_size(1180, 760);
+        let (tx, _rx) = mpsc::channel();
+        let pane = LibraryPane::new(
+            &parent,
+            tx,
+            Rc::new(RefCell::new(ArtworkLoader::default())),
+            &gtk4::Box::new(gtk4::Orientation::Vertical, 0),
+            &gtk4::Box::new(gtk4::Orientation::Vertical, 0),
+        );
+        parent.set_child(Some(&pane.borrow().page));
+        LibraryPane::apply(&pane, Ok(state().validate().unwrap()));
+        parent.present();
+        let until = std::time::Instant::now() + std::time::Duration::from_millis(200);
+        while std::time::Instant::now() < until {
+            while glib::MainContext::default().pending() {
+                glib::MainContext::default().iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        fn find(widget: &gtk4::Widget, class: &str) -> Option<gtk4::Widget> {
+            if widget.has_css_class(class) {
+                return Some(widget.clone());
+            }
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if let Some(found) = find(&current, class) {
+                    return Some(found);
+                }
+                child = current.next_sibling();
+            }
+            None
+        }
+        let page = pane.borrow().page.clone();
+        let hero = find(page.upcast_ref(), "playlist-hero")
+            .expect("the playlist page renders a hero");
+        let cover = find(&hero, "hero-cover").expect("the hero renders its cover");
+        let title = find(&hero, "playlist-hero-title").expect("the hero renders its title");
+        let cover_box = cover
+            .compute_bounds(&hero)
+            .expect("the cover is laid out");
+        let title_box = title
+            .compute_bounds(&hero)
+            .expect("the title is laid out");
+        let gap = title_box.x() - (cover_box.x() + cover_box.width());
+        assert!(
+            gap >= 18.0,
+            "the title must start clear of the artwork, but the gap is {gap}px"
         );
     }
 }

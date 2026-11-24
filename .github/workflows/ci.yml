@@ -61,3 +61,69 @@ jobs:
       - name: Run Rust tests
         working-directory: desktop-rust
         run: cargo test --locked
+
+  ios:
+    name: iOS Swift checks
+    runs-on: macos-26
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check audio cache eviction
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/tests/AudioCacheCheck.swift \
+            -o /tmp/ember-cache-check
+          /tmp/ember-cache-check
+
+      - name: Check shared playlist retries, conflicts, and private offline cache
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/SharedLibraryModel.swift \
+            mobile/ios/tests/SharedLibraryCheck.swift \
+            -o /tmp/ember-library-check
+          /tmp/ember-library-check
+
+      - name: Check Last.fm listening excludes pause, buffering and seeks
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/LastFMReporter.swift \
+            mobile/ios/tests/LastFMCheck.swift \
+            -o /tmp/ember-lastfm-check
+          /tmp/ember-lastfm-check
+
+      - name: Check queue ordering and stale-request invalidation
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Models/PlaybackQueue.swift \
+            mobile/ios/tests/QueueCheck.swift \
+            -o /tmp/ember-queue-check
+          /tmp/ember-queue-check
+
+      - name: Check pending playback and queue recovery
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Models/PlaybackQueue.swift \
+            mobile/ios/EmberMobile/Services/AppModel.swift \
+            mobile/ios/tests/AppModelCheck.swift \
+            -o /tmp/ember-model-check
+          /tmp/ember-model-check
+
+      - name: Check lyric timing offset direction, bounds, and seeking
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/LyricsTiming.swift \
+            mobile/ios/tests/LyricsTimingCheck.swift \
+            -o /tmp/ember-lyrics-timing-check
+          /tmp/ember-lyrics-timing-check
