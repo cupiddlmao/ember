@@ -31,10 +31,9 @@ grep -E 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' \
 - [ ] Backend `VERSION` and the Compose image tag match.
 - [ ] The iPhone bundle version is bumped when app behaviour changes, so a
       SideStore install is distinguishable from the previous one.
-- [ ] No stale version strings elsewhere. Known offender: the LRCLIB
-      `USER_AGENT` in `mobile/backend/lyrics_service.py` still says
-      `EmberMobile/0.2.0`; LRCLIB identifies clients by that string, so update
-      it with the version bump.
+- [ ] No stale version strings elsewhere. LRCLIB identifies clients by the
+      `USER_AGENT` in `mobile/backend/lyrics_service.py`, so bump it with the
+      version instead of leaving it at the previous release's string.
 
 ## 1. Pre-flight
 
@@ -165,7 +164,8 @@ backend.
 
 ## 7. Tag
 
-The repository currently has no tags.
+Tag the commit whose CI run you verified in gate 1, and build the IPA from the
+tag so the bundle can be traced back to it.
 
 ```bash
 git tag -a v0.3.0 -m "Ember 0.3.0"
@@ -173,7 +173,18 @@ git push origin v0.3.0
 ```
 
 - [ ] Tag pushed, pointing at the commit you actually released.
-- [ ] Record the three artifacts: desktop build, IPA SHA-256, backend image tag.
+- [ ] `git cat-file -t v0.3.0` prints `tag`: annotated, not lightweight.
+- [ ] IPA built by dispatching `ios-unsigned` **on the tag**, and
+      `EmberGitCommit` inside the bundle equals the tag's short SHA.
+- [ ] Record the three artifacts: desktop build, IPA SHA-256 and size, backend
+      image tag.
+
+Record them in the GitHub Release for the tag, not in this file, so the record
+can never describe the wrong release. `v0.3.0` holds commit `3b586e3`; its
+release notes carry CI run `45314961731`, IPA
+`b4d6e76ec00f29fcdb5de658dcc41b6aec22ff44a0119ddfcb36ff519665255d`
+(1,071,802 bytes, built by run `45315342964`) and image
+`ember-mobile-api:0.3.0`.
 
 ## Rollback
 
