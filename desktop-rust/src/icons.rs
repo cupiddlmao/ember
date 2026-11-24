@@ -87,6 +87,12 @@ const ICONS: &[(&str, &str)] = &[
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M10.5 3.8a6.7 6.7 0 1 0 0 13.4 6.7 6.7 0 0 0 0-13.4zm0 1.9a4.8 4.8 0 1 1 0 9.6 4.8 4.8 0 0 1 0-9.6z"/><path fill="#2e3436" d="M15.3 13.9 21 19.6 19.6 21 13.9 15.3z"/></svg>"##,
     ),
     (
+        // The Lyrics toggle. A document glyph read as "open a file", which is
+        // what the borrowed text-x-generic icon looked like beside Queue.
+        "lyrics-symbolic",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M3.2 5.4A2.2 2.2 0 0 1 5.4 3.2h13.2a2.2 2.2 0 0 1 2.2 2.2v9.2a2.2 2.2 0 0 1-2.2 2.2H9.6l-4.1 3.4a1.1 1.1 0 0 1-1.8-.85V16.8h-.1a2.2 2.2 0 0 1-.2-1.1zm2.2.3v9.1h13.2V5.7z"/><path fill="#2e3436" d="M6.6 8.1h10.8v1.7H6.6zM6.6 11.3h6.6v1.7H6.6z"/></svg>"##,
+    ),
+    (
         "text-x-generic-symbolic",
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#2e3436" fill-rule="evenodd" d="M6.5 3.5h7.3L18 7.7v12.8H6.5zm2 1.8v11.2h7.5V8.4h-3.4V5.3z"/><path fill="#2e3436" d="M13.6 3.9 18 8.3h-4.4z"/><path fill="#2e3436" d="M9 12h6v1.7H9zM9 15.4h6v1.7H9z"/></svg>"##,
     ),

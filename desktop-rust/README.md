@@ -226,13 +226,15 @@ python3 -m unittest -v test_bridge.py
 ### Sized captures
 
 `EMBER_UI_SIZE` sets the launch size and makes the process non-unique, so a
-capture is never forwarded to an already-running Ember. On the live X11
-session:
+capture is never forwarded to an already-running Ember. `EMBER_UI_PAGE`
+(`home`, `search` or `library`) picks the initial page, which is the only way to
+photograph a page that otherwise needs a click to reach; an unknown value falls
+back to Home. On the live X11 session:
 
 ```bash
 cd desktop-rust
 before=$(xprop -root _NET_CLIENT_LIST | grep -oE '0x[0-9a-f]+' | sort)
-GDK_BACKEND=x11 EMBER_UI_SIZE=1180x760 ./target/release/ember-rust &
+GDK_BACKEND=x11 EMBER_UI_SIZE=1180x760 EMBER_UI_PAGE=library ./target/release/ember-rust &
 pid=$!
 sleep 4
 after=$(xprop -root _NET_CLIENT_LIST | grep -oE '0x[0-9a-f]+' | sort)

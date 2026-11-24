@@ -216,6 +216,24 @@ fn cover_urls(entries: &[Entry]) -> Vec<String> {
     }
     urls
 }
+/// How many duotone cover palettes exist. Keep `cover-palette-0..N-1` in
+/// `style.css` in step with this constant.
+pub const COVER_PALETTES: usize = 6;
+
+/// Picks a stable cover palette for a name.
+///
+/// A playlist without artwork gets a duotone tile instead of a flat grey box,
+/// and the same name must always land on the same palette: a card that changed
+/// colour between renders would read as a bug rather than as a fallback.
+pub fn cover_palette(name: &str) -> usize {
+    let folded = name.trim().to_lowercase();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in folded.as_bytes() {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x1000_0000_01b3);
+    }
+    (hash % COVER_PALETTES as u64) as usize
+}
+
 fn playlist_initial(name: &str) -> String {
     name.trim()
         .chars()
@@ -453,6 +471,7 @@ fn cover_tile(url: &str, loader: &Rc<RefCell<ArtworkLoader>>) -> gtk4::Overlay {
 fn cover_fallback(name: &str, large: bool) -> gtk4::Box {
     let tile = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     tile.add_css_class("playlist-cover-fallback");
+    tile.add_css_class(&format!("cover-palette-{}", cover_palette(name)));
     tile.set_hexpand(true);
     tile.set_vexpand(true);
     let initial = label(
@@ -501,6 +520,37 @@ fn cover_body(
     }
     grid
 }
+/// The one-tile cover a sidebar row can actually read at 28 px.
+///
+/// A four-image collage is unreadable at this size, so a row shows the first
+/// recording's artwork and falls back to the same duotone initial as the cards.
+fn row_cover(
+    urls: &[String],
+    name: &str,
+    loader: &Rc<RefCell<ArtworkLoader>>,
+) -> gtk4::Widget {
+        // artwork_view sizes correctly at this edge, but its placeholder glyph
+    // expands, and GTK propagates that through a wrapper: every sidebar row
+    // would stretch to the height of the list.
+    let (frame, picture) = artwork_view(28, 10);
+    if let Some(url) = urls.first() {
+        ArtworkLoader::request(loader, url, ArtworkSlot::new(&picture));
+    } else {
+        let tile = cover_fallback(name, false);
+        tile.set_hexpand(false);
+        tile.set_vexpand(false);
+        frame.set_child(Some(&tile));
+    }
+    let mut child = frame.first_child();
+    while let Some(widget) = child {
+        widget.set_hexpand(false);
+        widget.set_vexpand(false);
+        child = widget.first_child();
+    }
+    frame.add_css_class("row-cover");
+    frame.upcast::<gtk4::Widget>()
+}
+
 fn fixed_cover(
     urls: &[String],
     name: &str,
@@ -530,6 +580,10 @@ fn hero_cover(
     cover.set_vexpand(false);
     cover.set_halign(gtk4::Align::Start);
     cover.set_valign(gtk4::Align::Start);
+    // Left square on purpose: SquareCover rounds a collage, but an AspectFrame
+    // scales its child instead of allocating it, so the clip never lands. The
+    // rail cards and sidebar covers are rounded; the page hero is a square of
+    // album art, which is how the library page has always read.
     cover.set_child(Some(&cover_body(urls, name, true, loader)));
     cover
 }
@@ -628,7 +682,7 @@ fn home_playlist_hero(
     hero.append(&fixed_cover(
         &cover_urls(entries),
         &detail.name,
-        120,
+        160,
         true,
         loader,
     ));
@@ -691,6 +745,8 @@ fn home_playlist_hero(
 fn sidebar_playlist_row(
     playlist: &Playlist,
     selected: bool,
+    covers: &HashMap<String, Vec<String>>,
+    loader: &Rc<RefCell<ArtworkLoader>>,
     tx: &mpsc::Sender<Action>,
 ) -> gtk4::Button {
     let row_button = gtk4::Button::new();
@@ -701,6 +757,11 @@ fn sidebar_playlist_row(
         row_button.add_css_class("selected");
     }
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row.append(&row_cover(
+        covers.get(&playlist.id).map(Vec::as_slice).unwrap_or_default(),
+        &playlist.name,
+        loader,
+    ));
     let text = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     text.set_hexpand(true);
     let name = label(&playlist.name, "playlist-nav-name");
@@ -780,6 +841,11 @@ fn playlist_song_row(
     play.set_tooltip_text(Some(&format!("Play {}", entry.track.title)));
     let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
     content.set_valign(gtk4::Align::Center);
+    let number = label(&(index + 1).to_string(), "song-index");
+    number.set_valign(gtk4::Align::Center);
+    number.set_width_chars(3);
+    number.set_xalign(1.0);
+    content.append(&number);
     let (artwork_frame, artwork_picture) = artwork_view(40, 14);
     artwork_frame.set_valign(gtk4::Align::Center);
     let slot = ArtworkSlot::new(&artwork_picture);
@@ -816,7 +882,9 @@ fn playlist_song_row(
 
     let menu = gtk4::MenuButton::new();
     menu.add_css_class("row-menu");
-    menu.set_child(Some(&gtk4::Image::from_icon_name("view-more-symbolic")));
+    let glyph = gtk4::Image::from_icon_name("view-more-symbolic");
+    glyph.add_css_class("row-menu-glyph");
+    menu.set_child(Some(&glyph));
     menu.set_tooltip_text(Some("Song options"));
     menu.set_valign(gtk4::Align::Center);
     menu.update_property(&[gtk4::accessible::Property::Label("Song options")]);
@@ -1316,8 +1384,13 @@ impl LibraryPane {
             return;
         }
         for playlist in &playlists {
-            let row =
-                sidebar_playlist_row(playlist, selected == Some(playlist.id.as_str()), &self.tx);
+            let row = sidebar_playlist_row(
+                playlist,
+                selected == Some(playlist.id.as_str()),
+                &self.cover_art,
+                &self.artwork_loader,
+                &self.tx,
+            );
             self.sidebar_list.append(&row);
         }
     }
@@ -1544,10 +1617,6 @@ impl LibraryPane {
         songs_header.set_margin_bottom(4);
         songs_header.append(&label("Songs", "section-title"));
         songs_header.set_tooltip_text(Some("Type a song title or artist to jump. Repeat a letter to cycle; pause for one second to start a new word."));
-        let hint = label(&count_label(entries.len()), "page-meta");
-        hint.set_hexpand(true);
-        hint.set_halign(gtk4::Align::End);
-        songs_header.append(&hint);
         self.songs.append(&songs_header);
         if entries.is_empty() {
             self.songs.append(&label(
@@ -2129,6 +2198,20 @@ mod tests {
             {"id":"33333333-3333-4333-8333-333333333333","track":{"id":"dm4tkSNKfFI","title":"Awake","artist":"Tycho","durationMs":284000}}]},
           "online":true,"pending":false})).unwrap()
     }
+    #[test]
+    fn cover_palette_is_stable_case_insensitive_and_in_range() {
+        assert_eq!(cover_palette("Late night drive"), cover_palette("late NIGHT drive"));
+        assert_eq!(cover_palette("Late night drive"), cover_palette("Late night drive"));
+        for name in ["", "?", "GG", "things", "emo rap n stuff", "東京", "🎵 mix"] {
+            assert!(cover_palette(name) < COVER_PALETTES);
+        }
+        // A fallback that maps every name to one palette would look broken.
+        let spread: HashSet<usize> = (0..80)
+            .map(|index| cover_palette(&format!("playlist {index}")))
+            .collect();
+        assert_eq!(spread.len(), COVER_PALETTES);
+    }
+
     #[test]
     fn playlist_initial_handles_wide_and_emoji_names() {
         assert_eq!(playlist_initial("東京"), "東");

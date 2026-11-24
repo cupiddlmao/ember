@@ -524,7 +524,11 @@ fn append_bounded(body: &mut Vec<u8>, chunk: &[u8], limit: usize) -> bool {
     true
 }
 
+/// Corner radius of a square cover, kept in step with `.playlist-card-cover`.
+pub const COVER_RADIUS: f32 = 10.0;
+
 mod square_cover {
+    use super::COVER_RADIUS;
     use gtk4::subclass::prelude::*;
     use gtk4::{glib, prelude::*};
 
@@ -561,9 +565,19 @@ mod square_cover {
             }
         }
         fn snapshot(&self, snapshot: &gtk4::Snapshot) {
+            let width = self.obj().width().max(0) as f32;
+            // The collage is a grid of square images, so only this widget can
+            // round the four outer corners; CSS radii on the tiles themselves
+            // would round every inner edge as well.
+            let rect = gtk4::graphene::Rect::new(0.0, 0.0, width, width);
+            let radius = gtk4::graphene::Size::new(COVER_RADIUS, COVER_RADIUS);
+            snapshot.push_rounded_clip(&gtk4::gsk::RoundedRect::new(
+                rect, radius, radius, radius, radius,
+            ));
             if let Some(child) = self.obj().first_child() {
                 self.obj().snapshot_child(&child, snapshot);
             }
+            snapshot.pop();
         }
     }
 }
