@@ -273,7 +273,7 @@ xcodebuild -project EmberMobile.xcodeproj \
 
 It then packages `Payload/EmberMobile.app` into an IPA, verifies there is no `_CodeSignature`, checks that `UIBackgroundModes` contains `audio`, verifies that `EmberGitCommit` matches the checked-out short SHA, prints a SHA-256, and uploads the artifact. If the build fails, the **xcodebuild-log** artifact is uploaded for diagnosis.
 
-The app bundle identifier is `com.ember.mobile`; version `0.2.0` (build `2`). SideStore re-signs the app, so CI never needs your Apple ID.
+The app bundle identifier is `com.ember.mobile`; version `0.3.0` (build `3`). SideStore re-signs the app, so CI never needs your Apple ID.
 
 The in-app **Settings** screen shows the bundle's version and build number, plus the short Git commit injected by the workflow. Local Xcode builds use the `local` fallback and show **Local build**.
 
