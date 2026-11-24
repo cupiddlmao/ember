@@ -556,13 +556,15 @@ fn row_cover(
     // expands, and GTK propagates that through a wrapper: every sidebar row
     // would stretch to the height of the list.
     let (frame, picture) = artwork_view(28, 10);
+    // The duotone goes in whether or not there is a URL to try. A row that
+    // asks for artwork and never gets it used to keep the placeholder disc,
+    // so the same sidebar read two different ways depending on a fetch.
+    let tile = cover_fallback(name, false);
+    tile.set_hexpand(false);
+    tile.set_vexpand(false);
+    frame.set_child(Some(&tile));
     if let Some(url) = urls.first() {
         ArtworkLoader::request(loader, url, ArtworkSlot::new(&picture));
-    } else {
-        let tile = cover_fallback(name, false);
-        tile.set_hexpand(false);
-        tile.set_vexpand(false);
-        frame.set_child(Some(&tile));
     }
     let mut child = frame.first_child();
     while let Some(widget) = child {
