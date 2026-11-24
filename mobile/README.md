@@ -66,7 +66,7 @@ This milestone adds a saved playlist library, ordered queue playback, and synced
 - Public and unlisted YouTube Music playlists only. Playlist links are parsed with the existing `music.music_link` helper and loaded through the existing anonymous `music.search` path. No Google account is involved.
 - Playlist results preserve duplicate song occurrences and track order, skip malformed/unavailable entries, report an unavailable count, and cap a loaded playlist at 5,000 tracks. A larger playlist returns an explicit error.
 - Playlist pages are bounded to 100 tracks and cached for 15 minutes; repeated page requests reuse the same parsed playlist.
-- Lyrics use [LRCLIB](https://lrclib.net/) only. No API key is required, and the backend identifies itself with `EmberMobile/0.2.0 (https://github.com/cupiddlmao/ember)`.
+- Lyrics use [LRCLIB](https://lrclib.net/) only. No API key is required, and the backend identifies itself with `EmberMobile/0.3.0 (https://github.com/cupiddlmao/ember)`.
 - LRC line timing is supported. Word timing is accepted only from an explicit LRCLIB Lyricsfile YAML `words` array with start timestamps and optional end timestamps. Missing word ends stay missing; they are never estimated from line timing.
 - PyYAML parses Lyricsfile with aliases disabled and a fixed, bounded schema.
 - Fixed, credential-free error messages; unexpected exception details are never returned to the client.
