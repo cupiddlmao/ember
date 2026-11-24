@@ -150,7 +150,7 @@ final class AppModel: ObservableObject {
         preparationTask = nil
         prefetchTask?.cancel()
         prefetchTask = nil
-        playbackGate.next()
+        _ = playbackGate.next()
         preparingTrackID = nil
         preparingEntryID = nil
         player.stop()
@@ -424,7 +424,7 @@ final class AppModel: ObservableObject {
     private func cancelPreparation() {
         cancelRadio()
         guard preparingEntryID != nil else { return }
-        playbackGate.next()
+        _ = playbackGate.next()
         preparationTask?.cancel()
         preparationTask = nil
         prefetchTask?.cancel()
