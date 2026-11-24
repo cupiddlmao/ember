@@ -1,15 +1,19 @@
 name: CI
 
+# Pull requests run this workflow. A push runs it on main only, to verify the
+# merge result: an unscoped `push` also ran every branch push, so each pull
+# request cost two full runs of the same jobs and put two `apt-get install`
+# steps on the same package mirror at once.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
-# A branch push and its pull request both run this workflow on the same commit.
-# One group keyed on the commit serialises them, so two `apt-get install` steps
-# stop competing for the same package mirror on GitHub-hosted runners.
-# cancel-in-progress stays false on purpose: a cancelled run reports its required
-# checks as "cancelled", which branch protection treats as a failure and blocks the merge.
+# Grouped on the commit so a re-run, or a second event for the same sha, cannot
+# start a competing run. cancel-in-progress stays false on purpose: a cancelled
+# run reports its required checks as "cancelled", which branch protection treats
+# as a failure and blocks the merge.
 concurrency:
   group: ci-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
