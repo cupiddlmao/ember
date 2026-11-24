@@ -1754,14 +1754,15 @@ impl LibraryPane {
         }
         self.songs.append(&flow);
     }
-    fn open_create(pane: &Rc<RefCell<Self>>) {
+    /// Opens the create dialog, or reports that the pane is not ready.
+    fn open_create(pane: &Rc<RefCell<Self>>) -> bool {
         let mut p = pane.borrow_mut();
         if p.busy {
-            return;
+            return false;
         }
         if let Some((window, _)) = &p.popup {
             window.present();
-            return;
+            return true;
         }
         let window = dialog_window(&p.parent, "New playlist", 440);
         close_on_escape(&window);
@@ -1833,6 +1834,7 @@ impl LibraryPane {
         glib::idle_add_local_once(move || {
             focus.grab_focus();
         });
+        true
     }
 
     fn submit_create(pane: &Rc<RefCell<Self>>, entry: &gtk4::Entry, status: &gtk4::Label) {
@@ -1856,17 +1858,18 @@ impl LibraryPane {
         Self::request(pane, json!({"operation":"create","name":name}));
     }
 
-    fn open_rename(pane: &Rc<RefCell<Self>>) {
+    /// Opens the rename dialog, or reports that the pane is not ready.
+    fn open_rename(pane: &Rc<RefCell<Self>>) -> bool {
         let mut p = pane.borrow_mut();
         if p.busy {
-            return;
+            return false;
         }
         let Some(detail) = p.state.detail.clone() else {
-            return;
+            return false;
         };
         if let Some((window, _)) = &p.popup {
             window.present();
-            return;
+            return true;
         }
         let window = dialog_window(&p.parent, "Rename playlist", 440);
         close_on_escape(&window);
@@ -1943,6 +1946,7 @@ impl LibraryPane {
             focus.grab_focus();
             focus.select_region(0, -1);
         });
+        true
     }
 
     fn submit_rename(
@@ -1975,6 +1979,61 @@ impl LibraryPane {
         );
     }
 
+    /// Opens one of the library dialogs for a verification capture.
+    ///
+    /// `EMBER_UI_DIALOG` is the only path here; a normal launch never calls it.
+    /// A capture asks for a dialog at launch, when the first refresh is still
+    /// in flight and every dialog refuses to open over a busy pane, so this
+    /// retries until one opens. Ten seconds is enough for a cold start on this
+    /// machine, and giving up still leaves a capture of the app rather than a
+    /// process that never exits.
+    pub fn open_capture_dialog(pane: &Rc<RefCell<Self>>, which: String) {
+        let mut attempts = 0;
+        let timer_pane = pane.clone();
+        glib::timeout_add_local(
+            std::time::Duration::from_millis(250),
+            move || {
+                attempts += 1;
+                if !Self::capture_ready(&timer_pane, &which) {
+                    return if attempts >= 40 {
+                        glib::ControlFlow::Break
+                    } else {
+                        glib::ControlFlow::Continue
+                    };
+                }
+                let opened = match which.as_str() {
+                    "create" => Self::open_create(&timer_pane),
+                    "rename" => Self::open_rename(&timer_pane),
+                    "delete" => Self::confirm_delete(&timer_pane),
+                    _ => true,
+                };
+                if opened || attempts >= 40 {
+                    glib::ControlFlow::Break
+                } else {
+                    glib::ControlFlow::Continue
+                }
+            },
+        );
+    }
+
+    /// Whether a capture dialog can be opened yet.
+    ///
+    /// The first library response can land either side of the retry tick, and
+    /// an offline run leaves the cached detail cleared. Opening then would
+    /// photograph a half-filled dialog, so a rename or delete waits for a
+    /// playlist that is actually there.
+    fn capture_ready(pane: &Rc<RefCell<Self>>, which: &str) -> bool {
+        let p = pane.borrow();
+        if p.busy {
+            return false;
+        }
+        which == "create"
+            || p.state
+                .detail
+                .as_ref()
+                .is_some_and(|detail| !detail.name.is_empty())
+    }
+
     fn confirm_discard(pane: &Rc<RefCell<Self>>) {
         let parent = pane.borrow().parent.clone();
         let weak = Rc::downgrade(pane);
@@ -1992,11 +2051,12 @@ impl LibraryPane {
         );
     }
 
-    fn confirm_delete(pane: &Rc<RefCell<Self>>) {
+    /// Asks for confirmation, or reports that no playlist is loaded.
+    fn confirm_delete(pane: &Rc<RefCell<Self>>) -> bool {
         let (parent, title, command) = {
             let p = pane.borrow();
             let Some(detail) = &p.state.detail else {
-                return;
+                return false;
             };
             (
                 p.parent.clone(),
@@ -2017,6 +2077,7 @@ impl LibraryPane {
                 }
             },
         );
+        true
     }
 
     pub fn add_dialog(pane: &Rc<RefCell<Self>>, track: &Track) {
@@ -2612,9 +2673,15 @@ mod tests {
             }
         }
         for dialog in 0..3 {
+            // The openers report whether the pane was ready; this test only
+            // cares that a window appeared.
             match dialog {
-                0 => LibraryPane::open_create(&pane),
-                1 => LibraryPane::open_rename(&pane),
+                0 => {
+                    LibraryPane::open_create(&pane);
+                }
+                1 => {
+                    LibraryPane::open_rename(&pane);
+                }
                 _ => LibraryPane::add_dialog(
                     &pane,
                     &state().detail.unwrap().entries.unwrap()[0]

@@ -8,6 +8,10 @@ pub const MAX_CAPTURE: i32 = 7680;
 pub const CAPTURE_ENV: &str = "EMBER_UI_SIZE";
 pub const PAGES: [&str; 3] = ["home", "search", "library"];
 pub const PAGE_ENV: &str = "EMBER_UI_PAGE";
+pub const PANELS: [&str; 3] = ["queue", "lyrics", "lyrics-fullscreen"];
+pub const PANEL_ENV: &str = "EMBER_UI_PANEL";
+pub const DIALOGS: [&str; 4] = ["settings", "create", "rename", "delete"];
+pub const DIALOG_ENV: &str = "EMBER_UI_DIALOG";
 
 /// Parses the `WIDTHxHEIGHT` or `WIDTH×HEIGHT` capture size.
 ///
@@ -39,6 +43,27 @@ pub fn capture_page() -> String {
     }
 }
 
+/// The side-panel state a capture should open itself in.
+///
+/// The panel, the immersive lyrics view and the library dialogs are all behind
+/// a click, and nothing in this checkout can move a real pointer, so a
+/// verification capture has to ask for them at launch.
+pub fn capture_panel() -> Option<String> {
+    named_from_env(PANEL_ENV, &PANELS)
+}
+
+/// The dialog a capture should open at launch, if any.
+pub fn capture_dialog() -> Option<String> {
+    named_from_env(DIALOG_ENV, &DIALOGS)
+}
+
+fn named_from_env(key: &str, allowed: &[&str]) -> Option<String> {
+    let value = std::env::var(key).ok()?;
+    // An unknown name is ignored rather than guessed at, so a typo cannot
+    // produce a capture that quietly shows something else.
+    allowed.contains(&value.as_str()).then_some(value)
+}
+
 /// Reads the capture size from the environment, if it is valid.
 pub fn capture_size() -> Option<(i32, i32)> {
     std::env::var(CAPTURE_ENV)
@@ -49,6 +74,26 @@ pub fn capture_size() -> Option<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_panel_and_dialog_accept_only_real_names() {
+        unsafe {
+            std::env::set_var(PANEL_ENV, "lyrics-fullscreen");
+            std::env::set_var(DIALOG_ENV, "rename");
+        };
+        assert_eq!(capture_panel().as_deref(), Some("lyrics-fullscreen"));
+        assert_eq!(capture_dialog().as_deref(), Some("rename"));
+        unsafe {
+            std::env::set_var(PANEL_ENV, "lyric");
+            std::env::set_var(DIALOG_ENV, "delete-playlist");
+        };
+        assert_eq!(capture_panel(), None);
+        assert_eq!(capture_dialog(), None);
+        unsafe {
+            std::env::remove_var(PANEL_ENV);
+            std::env::remove_var(DIALOG_ENV);
+        };
+    }
 
     #[test]
     fn capture_page_accepts_only_real_destinations() {
