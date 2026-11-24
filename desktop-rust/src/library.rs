@@ -261,8 +261,23 @@ fn playlist_meta(entries: &[Entry]) -> String {
         return "Empty playlist".into();
     }
     let total: u64 = entries.iter().map(|entry| entry.track.duration_ms).sum();
-    let minutes = total.div_ceil(60_000).max(1);
-    format!("{} · {minutes} min", count_label(entries.len()))
+    format!("{} · {}", count_label(entries.len()), spoken_length(total))
+}
+
+/// A length a listener can read off the hero. Minutes run into five digits on a
+/// large playlist, where "43536 min" answers a question nobody asked; past a
+/// hundred hours even the minutes remainder is noise.
+fn spoken_length(total_ms: u64) -> String {
+    let minutes = total_ms.div_ceil(60_000).max(1);
+    if minutes < 60 {
+        return format!("{minutes} min");
+    }
+    let (hours, rest) = (minutes / 60, minutes % 60);
+    if hours >= 100 || rest == 0 {
+        format!("{hours} hr")
+    } else {
+        format!("{hours} hr {rest} min")
+    }
 }
 
 pub enum Action {
@@ -440,23 +455,19 @@ fn confirm_window(
     });
 }
 
+/// A collage tile. Its resting child is empty space, not a disc glyph: a fetch
+/// that fails leaves the cover's own duotone showing through, and four disc
+/// glyphs in a 200 px hero read as four broken images rather than as artwork
+/// that is simply not there.
 fn cover_tile(url: &str, loader: &Rc<RefCell<ArtworkLoader>>) -> gtk4::Overlay {
     let overlay = gtk4::Overlay::new();
     overlay.add_css_class("cover-tile");
     overlay.set_hexpand(true);
     overlay.set_vexpand(true);
-    let placeholder = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    placeholder.add_css_class("cover-placeholder");
-    placeholder.set_hexpand(true);
-    placeholder.set_vexpand(true);
-    let glyph = gtk4::Image::from_icon_name("media-optical-symbolic");
-    glyph.set_pixel_size(18);
-    glyph.add_css_class("cover-glyph");
-    glyph.set_halign(gtk4::Align::Center);
-    glyph.set_valign(gtk4::Align::Center);
-    glyph.set_vexpand(true);
-    placeholder.append(&glyph);
-    overlay.set_child(Some(&placeholder));
+    let resting = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resting.set_hexpand(true);
+    resting.set_vexpand(true);
+    overlay.set_child(Some(&resting));
     let picture = gtk4::Picture::new();
     picture.add_css_class("cover-picture");
     picture.set_can_shrink(true);
@@ -468,12 +479,19 @@ fn cover_tile(url: &str, loader: &Rc<RefCell<ArtworkLoader>>) -> gtk4::Overlay {
     ArtworkLoader::request(loader, url, slot);
     overlay
 }
-fn cover_fallback(name: &str, large: bool) -> gtk4::Box {
+/// The duotone surface behind a cover, keyed to the playlist name so it is the
+/// same surface on every render and on every device.
+fn cover_surface(name: &str) -> gtk4::Box {
     let tile = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     tile.add_css_class("playlist-cover-fallback");
     tile.add_css_class(&format!("cover-palette-{}", cover_palette(name)));
     tile.set_hexpand(true);
     tile.set_vexpand(true);
+    tile
+}
+
+fn cover_fallback(name: &str, large: bool) -> gtk4::Box {
+    let tile = cover_surface(name);
     let initial = label(
         &playlist_initial(name),
         if large {
@@ -497,6 +515,11 @@ fn cover_body(
 ) -> gtk4::Grid {
     let grid = gtk4::Grid::new();
     grid.add_css_class("playlist-cover");
+    // The duotone belongs to the whole cover, not to each tile. Repeating the
+    // gradient per tile put a light corner against a dark one at every seam, so
+    // an unreachable collage read as four unrelated squares; one surface behind
+    // transparent tiles keeps it continuous and lets the 1 px grout tint too.
+    grid.add_css_class(&format!("cover-palette-{}", cover_palette(name)));
     grid.set_hexpand(true);
     grid.set_vexpand(true);
     grid.set_column_homogeneous(true);
@@ -2368,6 +2391,17 @@ mod tests {
         tracks.sort_by(|a, b| a.name.cmp(&b.name));
         shuffled.sort_by(|a, b| a.name.cmp(&b.name));
         assert_eq!(shuffled, tracks);
+    }
+
+    #[test]
+    fn spoken_length_stays_readable_at_every_size() {
+        assert_eq!(spoken_length(0), "1 min");
+        assert_eq!(spoken_length(44_000), "1 min");
+        assert_eq!(spoken_length(59 * 60_000 + 1), "1 hr");
+        assert_eq!(spoken_length(101 * 60_000), "1 hr 41 min");
+        assert_eq!(spoken_length(120 * 60_000), "2 hr");
+        // The 5,000-row playlist that made this a defect: 43,536 minutes.
+        assert_eq!(spoken_length(43_536 * 60_000), "725 hr");
     }
 
     #[test]
