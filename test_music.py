@@ -107,6 +107,28 @@ class MusicTests(unittest.TestCase):
         self.assertEqual(path.suffix, '.webm')
         self.assertGreater(path.stat().st_size, 0)
 
+    def test_download_audio_passes_and_enforces_the_size_cap(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        seen = {}
+        class FakeYoutubeDL:
+            def __init__(self, options):
+                self.options = seen.update(options) or options
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return False
+            def extract_info(self, _url, download=False):
+                Path(self.options['outtmpl'].replace('%(ext)s', 'webm')).write_bytes(b'x' * 2048)
+                return {'id': 'dm4tkSNKfFI', 'title': 'Awake', 'duration': 284, 'has_drm': False}
+        uri = {'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'}
+        with patch('music.yt_dlp.YoutubeDL', FakeYoutubeDL):
+            download_audio(uri, folder.name, max_bytes=4096)
+            self.assertEqual(seen['max_filesize'], 4096)
+            with self.assertRaises(RuntimeError):
+                download_audio(uri, folder.name, max_bytes=1024)
+        self.assertEqual(list(Path(folder.name).iterdir()), [])
+
     def test_stream_host_and_drm_boundary(self):
         client = MagicMock()
         client.__enter__.return_value = client
