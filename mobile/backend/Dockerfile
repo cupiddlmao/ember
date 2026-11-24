@@ -2,6 +2,12 @@ FROM node:22-bookworm-slim AS node
 
 FROM python:3.12-slim-bookworm
 
+# The commit this image was built from, so a container can be traced back to a
+# revision rather than only to a version tag. CI passes the dispatched SHA and
+# fails the build if the recorded value does not match it.
+ARG EMBER_GIT_COMMIT=unknown
+LABEL org.opencontainers.image.revision=$EMBER_GIT_COMMIT
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*

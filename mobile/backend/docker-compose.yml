@@ -3,6 +3,10 @@ services:
     build:
       context: ../..
       dockerfile: mobile/backend/Dockerfile
+      args:
+        # Records the commit in the image label; CI overrides this with the
+        # dispatched SHA. Export EMBER_GIT_COMMIT to stamp local builds too.
+        EMBER_GIT_COMMIT: ${EMBER_GIT_COMMIT:-unknown}
     image: ember-mobile-api:0.3.0
     restart: unless-stopped
     environment:
