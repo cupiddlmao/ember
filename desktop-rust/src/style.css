@@ -1558,7 +1558,17 @@ button.playlist-nav-row.selected .playlist-nav-meta {
 
 .playlist-cover {
   border-radius: 10px;
-  background: @raised;
+  /* background-color, not the `background` shorthand: the shorthand resets
+     background-image, which would wipe the palette gradient the cover itself
+     carries when artwork is not there. */
+  background-color: @raised;
+}
+
+/* The page hero is a square of album art, so its surface keeps square corners
+   even though the same class rounds a rail card. */
+.hero-cover .playlist-cover,
+.hero-cover .playlist-cover-fallback {
+  border-radius: 0;
 }
 
 .playlist-cover-fallback {
@@ -1617,6 +1627,9 @@ button.playlist-nav-row.selected .playlist-nav-meta {
 .row-cover .cover-picture {
   border-radius: 6px;
 }
+
+/* Tiles sit inside a collage the cover itself rounds, so they stay square. */
+
 
 .cover-placeholder {
   background: @overlay;

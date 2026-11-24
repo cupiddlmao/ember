@@ -292,7 +292,7 @@ def execute(command):
             elif acknowledged:
                 state["error"] = "Saved, but refresh failed. Refresh to see the latest library."
             else:
-                state["error"] = "Library unavailable. Cached playlists are read only; check Settings and Tailscale."
+                state["error"] = "Library unavailable. Cached playlists are read only. Refresh to reconnect."
         state["acknowledged"] = acknowledged
         # Return pending existence, never expose an entire retry command to the UI.
         return {**state, "pending": state.get("pending") is not None}
