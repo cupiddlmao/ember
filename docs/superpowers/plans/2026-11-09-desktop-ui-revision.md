@@ -62,7 +62,7 @@
 - Produces: `pub const DEFAULT_WIDTH: i32 = 1180; pub const DEFAULT_HEIGHT: i32 = 760; pub const MIN_WIDTH: i32 = 780; pub const MIN_HEIGHT: i32 = 580; pub const MAX_CAPTURE: i32 = 7680; pub const CAPTURE_ENV: &str = "EMBER_UI_SIZE";`
 - Produces: `pub fn parse_size(value: &str) -> Option<(i32, i32)>` (accepts `WxH` and `W×H`, trims, rejects either side `< MIN_*`, `> MAX_CAPTURE`, or zero) and `pub fn capture_size() -> Option<(i32, i32)>` (reads the env var).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```rust
 #[test]
@@ -78,21 +78,21 @@ fn parses_capture_sizes_and_rejects_out_of_range() {
 }
 ```
 
-- [ ] **Step 2: Run it and confirm failure**
+- [x] **Step 2: Run it and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked viewport::tests::parses_capture_sizes_and_rejects_out_of_range`
 Expected: FAIL — `parse_size` not found.
 
-- [ ] **Step 3: Implement `viewport.rs` and wire it into `activate()`**
+- [x] **Step 3: Implement `viewport.rs` and wire it into `activate()`**
 
 Replace the literals in the window builder with `viewport::capture_size().unwrap_or((DEFAULT_WIDTH, DEFAULT_HEIGHT))` and `window.set_size_request(MIN_WIDTH, MIN_HEIGHT)`.
 
-- [ ] **Step 4: Re-run the test**
+- [x] **Step 4: Re-run the test**
 
 Run: `cd desktop-rust && cargo test --locked viewport::tests`
 Expected: PASS.
 
-- [ ] **Step 5: Prove a capture end to end**
+- [x] **Step 5: Prove a capture end to end**
 
 ```bash
 cd desktop-rust
@@ -108,7 +108,7 @@ Add this recipe to `README.md` under "Checks". Confirm the PNG is 780×580.
 side. A 780×580 window arrives as 830×630; crop with `+25+25` before checking
 the size.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add desktop-rust/src/viewport.rs desktop-rust/src/main.rs desktop-rust/src/app.rs desktop-rust/README.md
@@ -131,7 +131,7 @@ git commit -m "test: add sized capture harness for UI verification"
 - Produces: `pub fn install_into(base: &Path) -> Result<PathBuf, String>` — writes `include_bytes!("../assets/InterVariable.ttf")` and `fonts.conf` under `base`, returns the font path.
 - Produces: `pub fn install() -> Result<PathBuf, String>` — calls `install_into($XDG_CACHE_HOME/ember-player/fonts)` and sets `FONTCONFIG_FILE`.
 
-- [ ] **Step 1: Fetch the font and licence**
+- [x] **Step 1: Fetch the font and licence**
 
 ```bash
 cd desktop-rust && mkdir -p assets
@@ -141,7 +141,7 @@ curl -fsSL https://raw.githubusercontent.com/rsms/inter/master/LICENSE.txt -o as
 
 Confirm the TTF is a variable font (`fc-scan assets/InterVariable.ttf | grep -i variable`). Both files are committed.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```rust
 #[test]
@@ -160,21 +160,21 @@ fn install_writes_the_font_and_config() {
 }
 ```
 
-- [ ] **Step 3: Run and confirm failure**
+- [x] **Step 3: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked fonts::`
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement `fonts.rs`; call it first in `main()`**
+- [x] **Step 4: Implement `fonts.rs`; call it first in `main()`**
 
 `std::env::set_var` is `unsafe` in edition 2024: wrap it with a `// SAFETY:` comment explaining it runs single-threaded before GTK starts. On error, print `Ember: {error}` to stderr and continue on the system stack.
 
-- [ ] **Step 5: Run the unit tests**
+- [x] **Step 5: Run the unit tests**
 
 Run: `cd desktop-rust && cargo test --locked fonts::`
 Expected: PASS.
 
-- [ ] **Step 6: Prove the family actually resolves**
+- [x] **Step 6: Prove the family actually resolves**
 
 ```rust
 #[test]
@@ -192,7 +192,7 @@ Expected: PASS.
 
 **Decision gate:** if this fails, try `@font-face { font-family: "Inter"; src: url("file:///…/InterVariable.ttf"); }` in the provider and re-run. If it still fails, stop: report the blocker, keep the system stack, and do not start Task 4. Record the outcome in `docs/adr/0002-visual-system.md` under Risks.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add desktop-rust/assets desktop-rust/src/fonts.rs desktop-rust/src/main.rs desktop-rust/README.md
@@ -214,7 +214,7 @@ git commit -m "feat: bundle Inter Variable for deterministic desktop type"
 - Produces: `pub fn ease(t: f64) -> f64` — cubic-bezier(.2, 0, 0, 1), clamped to `[0,1]`.
 - Produces: `pub fn eased_progress(elapsed: Duration, duration: Duration, animations: bool) -> f64` — returns `1.0` when `!animations` or `duration.is_zero()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -241,30 +241,30 @@ fn disabled_animation_jumps_to_end() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked motion::`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `motion.rs`**
+- [x] **Step 3: Implement `motion.rs`**
 
 Use a Newton iteration or a sampled look-up for the bezier; either is fine as long as the tests pin the endpoints and monotonicity.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd desktop-rust && cargo test --locked motion::`
 Expected: PASS.
 
-- [ ] **Step 5: Surface motion once — panel reveal**
+- [x] **Step 5: Surface motion once — panel reveal**
 
 Wrap `build_side_panel().container` in a `gtk4::Revealer` (`SlideRight`, duration `PAGE`) added as the overlay; store the revealer in `AppUi.side_panel` and replace `set_visible(true/false)` calls with `set_reveal_child`. Set the page `Stack` crossfade duration from `motion::PAGE`. Probe whether GTK animates a CSS `transition: background-color 120ms`; record supported/unsupported in ADR 0002.
 
-- [ ] **Step 6: Verify visually and with tests**
+- [x] **Step 6: Verify visually and with tests**
 
 Run: `cd desktop-rust && cargo test --locked && cargo build --release`
 Expected: PASS. Capture panel open/close at 1180×760; under `gtk-enable-animations=false` the panel appears instantly.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add desktop-rust/src/motion.rs desktop-rust/src/main.rs desktop-rust/src/app.rs desktop-rust/src/style.css docs/adr/0002-visual-system.md
@@ -283,19 +283,19 @@ git commit -m "feat: add systematic motion tokens and panel reveal"
 - Consumes: the values in ADR 0002.
 - Produces: `@define-color canvas #1b1b1f;` `sidebar #242428` `raised #26262b` `overlay #2e2e34` `sunken #141416` `hairline rgba(255,255,255,0.07)` `hairline-strong rgba(255,255,255,0.12)` `text #f4f4f6` `text-2 #a6a6af` `text-3 #787881` `accent #ef5367` `accent-hover #fa6678`.
 
-- [ ] **Step 1: Add the token block and replace every colour reference**
+- [x] **Step 1: Add the token block and replace every colour reference**
 
 Every selector uses `@canvas`, `@text`, etc. No literal hex outside the block.
 
-- [ ] **Step 2: Collapse type, weight and radius values**
+- [x] **Step 2: Collapse type, weight and radius values**
 
 Map size roles to `11/12/13/15/19/26/34` (keep `48` only for `.cover-initial`), weights to `400/500/600`, radii to `6/10/14/999`.
 
-- [ ] **Step 3: Fix the permanent focus ring**
+- [x] **Step 3: Fix the permanent focus ring**
 
 Accent border only on `.sidebar-search:focus-within`; the idle field uses a hairline. Remove the always-on accent border.
 
-- [ ] **Step 4: Verify mechanically**
+- [x] **Step 4: Verify mechanically**
 
 ```bash
 cd desktop-rust/src
@@ -305,12 +305,12 @@ grep -oE 'border-radius: [0-9]+px' style.css | sort -u       # 6,10,14 (+999px h
 grep -v '^@define-color' style.css | grep -cE '#[0-9a-fA-F]{6}'   # 0
 ```
 
-- [ ] **Step 5: Build and capture**
+- [x] **Step 5: Build and capture**
 
 Run: `cd desktop-rust && cargo build --release`
 Capture Home, Search, Library at 1180×760 and 780×580. Confirm nothing is unreadable and the search field is quiet when unfocused.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add desktop-rust/src/style.css
@@ -330,7 +330,7 @@ git commit -m "style: migrate desktop stylesheet onto the visual token system"
 - Produces: `pub struct Notice { pub widget: gtk4::Box }` with `pub fn new() -> Self`, `pub fn show(&self, text: &str, error: bool)`, `pub fn show_progress(&self, text: &str)`.
 - Produces: `pub fn dismiss_after(error: bool) -> Option<Duration>` — `None` for errors, `Some(4s)` otherwise.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```rust
 #[test]
@@ -340,25 +340,25 @@ fn errors_persist_and_success_dismisses() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked notice::`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `notice.rs` and replace the status strip**
+- [x] **Step 3: Implement `notice.rs` and replace the status strip**
 
 Delete `status_row`, `spinner` and `status_label` from `main`/`AppUi`; add the notice as a bottom-left overlay on `body_overlay`. Keep `fn set_status(&mut self, message: &str, error: bool)` as the single entry point so existing call sites do not change. A new notice clears the previous timeout. Route `set_loading_status` through `Notice::show_progress` so in-flight work is never auto-dismissed, and delete every remaining `spinner`/`status_label` reference.
 
-- [ ] **Step 4: Restructure the sidebar**
+- [x] **Step 4: Restructure the sidebar**
 
 `SIDEBAR_WIDTH = 232`; remove the "Session" label; nav order Home → Search → Library; playlists section header gains 4 px top margin and the add control stays in its header. Keep accessible labels on every icon button. Remove the launch-time `search_entry.grab_focus()` so the idle sidebar shows no accent ring; Tab still reaches the field first.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cd desktop-rust && cargo test --locked && cargo build --release`
 Capture 1180×760 and 780×580; trigger a search error and a successful library refresh and confirm the notice appears bottom-left and dismisses only for success.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add desktop-rust/src/notice.rs desktop-rust/src/app.rs desktop-rust/src/main.rs desktop-rust/src/style.css
@@ -379,7 +379,7 @@ git commit -m "feat: replace the status strip with transient notices and rework 
 - Produces: `pub struct ResponsiveBar` (extends `gtk4::Box`) with `pub fn new(orientation: gtk4::Orientation) -> Self` and `pub fn on_width(&self, callback: impl Fn(i32) + 'static)`; emits on allocation changes only.
 - Produces: `PlayerParts { header: gtk4::HeaderBar, titlebar: ResponsiveBar, volume_box: gtk4::Box, progress_scale: gtk4::Scale, … }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```rust
 #[test]
@@ -392,29 +392,29 @@ fn compact_player_threshold() {
 
 Add an ignored display test asserting `ResponsiveBar` reports 1180 then 780 after `set_default_size` and main-context iteration.
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked responsive::`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `responsive.rs`**
+- [x] **Step 3: Implement `responsive.rs`**
 
 Subclass `gtk4::Box`, override `WidgetImpl::size_allocate`, call the parent, then invoke callbacks when the width changed. Follow the existing `SquareArtwork` subclass pattern in `app.rs`.
 
-- [ ] **Step 4: Rebuild the titlebar**
+- [x] **Step 4: Rebuild the titlebar**
 
 `titlebar = ResponsiveBar::new(Vertical)` containing the existing `HeaderBar` (`min-height: 56`) and the progress scale as a 12 px strip with a 2 px trough. Remove the scale from the now-playing pill. `window.set_titlebar(Some(&player.titlebar))`. Keep the artwork, title, artist, elapsed/duration and volume controls.
 
-- [ ] **Step 5: Wire compact behaviour**
+- [x] **Step 5: Wire compact behaviour**
 
 At `compact_player(width)`: hide `volume_box` and the elapsed/duration label, and shrink the pill request to `280`. At wider sizes restore them. Never hide Queue, Lyrics, Stop or the window close control. Then confirm a `780x580` capture crops to exactly 780×580 (the raw X11 window is 50 px larger from CSD shadow).
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `cd desktop-rust && cargo test --locked && cargo build --release`
 Capture at 1180×760, 900×760 and 780×580 with and without the panel. Confirm no clipped controls.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add desktop-rust/src/responsive.rs desktop-rust/src/app.rs desktop-rust/src/style.css desktop-rust/src/main.rs
@@ -436,7 +436,7 @@ git commit -m "feat: rebuild the player bar with responsive compact behaviour"
 - Produces: `pub struct PlaylistSummary { pub id: String, pub name: String, pub track_count: usize, pub cover_urls: Vec<String> }` and `pub fn summary_from_state(state: &LibraryState) -> Option<PlaylistSummary>`.
 - Produces: `impl LibraryPane { pub fn selected_summary(&self) -> Option<PlaylistSummary> }`.
 
-- [ ] **Step 1: Write the failing grouping tests**
+- [x] **Step 1: Write the failing grouping tests**
 
 Add a test helper `fn track(id: &str, album: &str, artist: &str) -> Track` first.
 
@@ -460,20 +460,20 @@ fn does_not_merge_different_artists_or_empty_albums() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked home::`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `home.rs` and render groups**
+- [x] **Step 3: Implement `home.rs` and render groups**
 
 `refresh_home` iterates `group_session(&self.recent_tracks)`; when `album.is_some()` build `album_card` (cover from the group's first artwork URL, title = album, caption = artist, count badge) whose click calls `activate_recent(group.first_index)`; otherwise reuse `recent_card`. Keep the section count label showing recordings, not groups.
 
-- [ ] **Step 4: Add the lead surface and playlist rail**
+- [x] **Step 4: Add the lead surface and playlist rail**
 
 `library.rs::render_home` puts the selected playlist hero (name, count, Play/Shuffle) above the rail when `state.detail` is present; the rail stays a `FlowBox` of playlist cards, selected playlist first then backend order. Reuse `cover_urls` for collage covers. Omit the section when there are no playlists.
 
-- [ ] **Step 5: Add the summary tests**
+- [x] **Step 5: Add the summary tests**
 
 ```rust
 #[test]
@@ -486,12 +486,12 @@ fn summary_reports_selected_playlist_and_deduped_covers() {
 }
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `cd desktop-rust && cargo test --locked`
 Capture Home with two playlists and duplicate-album recordings at 1180 and 780. Confirm one card per album and no empty section.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add desktop-rust/src/home.rs desktop-rust/src/app.rs desktop-rust/src/library.rs desktop-rust/src/main.rs desktop-rust/src/style.css
@@ -511,7 +511,7 @@ git commit -m "feat: compose Home from real session groups and shared playlists"
 - Produces: `fn set_page_header(&self, visible: bool)` toggling the "Library" title and its subtitle row.
 - Produces: `fn hero_cover(urls: &[String], name: &str, loader: &Rc<RefCell<ArtworkLoader>>) -> gtk4::Widget` using a `gtk4::AspectFrame` (ratio 1) + `.hero-cover`.
 
-- [ ] **Step 1: Write the failing test for wide/emoji names**
+- [x] **Step 1: Write the failing test for wide/emoji names**
 
 ```rust
 #[test]
@@ -522,25 +522,25 @@ fn playlist_initial_handles_wide_and_emoji_names() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked library::tests::playlist_initial_handles_wide_and_emoji_names`
 Expected: FAIL. Implement it with `name.chars().next()` and a `"?"` fallback for an empty name, then re-run to PASS.
 
-- [ ] **Step 3: Remove the duplicate hierarchy**
+- [x] **Step 3: Remove the duplicate hierarchy**
 
 Hide the page title and the "Shared with your iPhone · no provider account needed" subtitle whenever a playlist detail is shown; keep the refresh control in a slim toolbar. Delete the "SHARED PLAYLIST" eyebrow.
 
-- [ ] **Step 4: Rebuild the hero**
+- [x] **Step 4: Rebuild the hero**
 
 `hero_cover` at 200 px via CSS `min-width/min-height`, `@media (max-width: 900px)` drops it to 160 px and the title to 26 px. Title class `.playlist-hero-title` is 34/600, ellipsized, with a tooltip; meta shows count and duration; Play, Shuffle and overflow keep their current behaviour and accessible labels. The hero stays horizontal at the minimum width.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cd desktop-rust && cargo test --locked`
 Capture a playlist page at 1180, 780, with a 100-character name and a CJK name. Confirm no clipped controls and no title above the hero.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add desktop-rust/src/library.rs desktop-rust/src/style.css
@@ -563,7 +563,7 @@ git commit -m "style: make the playlist hero the page title and fix wide-name ha
 - Produces: `impl ArtworkSlot { pub fn with_tint(picture: &gtk4::Picture, on_tint: Rc<dyn Fn(Tint)>) -> Self; fn accepts(&self, url: &str) -> bool; #[cfg(test)] pub fn for_test(url: &str) -> Self }`.
 - Produces: `impl ArtworkLoader { pub fn request_tint(loader: &Rc<RefCell<Self>>, url: &str, callback: Rc<dyn Fn(Tint)>) -> u64; pub fn cancel_tint(loader: &Rc<RefCell<Self>>, token: u64); #[cfg(test)] fn begin_tint(&mut self, url: &str) -> u64; fn cancel_tint_token(&mut self, token: u64); #[cfg(test)] fn pending_tint_waiters(&self) -> usize }`.
 
-- [ ] **Step 1: Write the failing tint tests**
+- [x] **Step 1: Write the failing tint tests**
 
 ```rust
 #[test]
@@ -581,16 +581,16 @@ fn empty_or_transparent_pixels_produce_no_tint() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked tint::`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `tint.rs`**
+- [x] **Step 3: Implement `tint.rs`**
 
 Luminance via sRGB relative luminance; `clamp_for_contrast` moves lightness toward black or white until the ratio is met (bounded loop, no infinite search).
 
-- [ ] **Step 4: Extend the artwork loader**
+- [x] **Step 4: Extend the artwork loader**
 
 Cache `(gdk::Texture, Tint)`; compute the tint inside the existing blocking decode closure; deliver only to slots that still `accepts(url)` and to tint waiters whose token was not cancelled. Add the stale-guard test:
 
@@ -611,16 +611,16 @@ fn cancelled_tint_request_is_dropped() {
 }
 ```
 
-- [ ] **Step 5: Apply the tint**
+- [x] **Step 5: Apply the tint**
 
 Library hero and immersive lyrics install one `gtk4::CssProvider` per surface and reload it with `tint::css(&tint)`; the hero class adds a 160° gradient at ≤ 35% strength, immersive at ≤ 25%. Library cancels the previous tint token before requesting a new one. No tint is applied when artwork is missing.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `cd desktop-rust && cargo test --locked`
 Capture a bright cover and a near-black cover in Library and immersive lyrics. Confirm required text keeps its contrast and switching tracks quickly never leaves the previous tint.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add desktop-rust/src/tint.rs desktop-rust/src/artwork.rs desktop-rust/src/library.rs desktop-rust/src/app.rs desktop-rust/src/main.rs desktop-rust/src/style.css
@@ -639,7 +639,7 @@ git commit -m "feat: tint hero surfaces from artwork with contrast clamping"
 - Produces: `fn confirm_window(parent: &glib::WeakRef<gtk4::ApplicationWindow>, title: &str, body: &str, confirm_label: &str, destructive: bool, on_confirm: impl Fn() + 'static)`.
 - Produces: `build_settings_window` keeps its current tuple return type; only width (480), resizable and internal layout change.
 
-- [ ] **Step 1: Write the failing display test**
+- [x] **Step 1: Write the failing display test**
 
 ```rust
 #[test]
@@ -657,25 +657,25 @@ fn confirm_dialog_cancel_does_not_confirm() {
 }
 ```
 
-- [ ] **Step 2: Run and confirm failure**
+- [x] **Step 2: Run and confirm failure**
 
 Run: `cd desktop-rust && cargo test --locked confirm_dialog_cancel_does_not_confirm -- --ignored --exact --test-threads=1`
 Expected: FAIL — function not found.
 
-- [ ] **Step 3: Replace stock alerts**
+- [x] **Step 3: Replace stock alerts**
 
 Implement `confirm_window` on top of `dialog_window`, with Escape and Cancel closing without calling `on_confirm`, and the destructive primary carrying the destructive class. Call it from `confirm_discard` and `confirm_delete`. Keep the existing `closed_dialog_callbacks_release_window` test green.
 
-- [ ] **Step 4: Restyle Settings and dialogs**
+- [x] **Step 4: Restyle Settings and dialogs**
 
 Settings 480 px and resizable, three labelled sections (Playback, Shared library, About) with hairline dividers and 11 px consequence text. Dialogs 420–460 px, radius 14, 19/600 title. Menus 10 px radius, 30 px rows, destructive colour meeting the floor on `@overlay`.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cd desktop-rust && cargo test --locked`
 Capture Settings, New playlist, Rename, Delete confirm and Add-to-playlist at 1180 and 780.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add desktop-rust/src/app.rs desktop-rust/src/library.rs desktop-rust/src/style.css
@@ -694,7 +694,7 @@ git commit -m "style: bring settings, dialogs and menus onto the shared visual s
 - Consumes: `EMBER_UI_SIZE` from Task 1; every surface from Tasks 4–10.
 - Produces: the capture set and the final checklist record.
 
-- [ ] **Step 1: Run all suites**
+- [x] **Step 1: Run all suites**
 
 ```bash
 python -m unittest discover -q
@@ -704,23 +704,23 @@ cd desktop-rust && python3 -m unittest -v test_bridge.py test_cache.py test_libr
 
 Expected: all PASS. If shared code was untouched, root suites are still run once for the record.
 
-- [ ] **Step 2: Capture the matrix**
+- [x] **Step 2: Capture the matrix**
 
 Sizes `1180x760`, `780x580`, `1440x900`; states: Home empty, Home populated, Search results, Library overview, Library hero, queue panel, lyrics panel (loading/synced/plain/error), immersive lyrics, Settings, each dialog, menu open, hover, focus-visible, long names, 5,000-row playlist. Use the Task 1 recipe; save each as `screenshots/matrix/<size>-<state>.png`.
 
-- [ ] **Step 3: Check the matrix**
+- [x] **Step 3: Check the matrix**
 
 Contrast floor on every surface including tinted ones; tab order reaches every control; icon-only controls keep tooltips and accessible labels; reduce-animation removes motion; 1.5× and 2× scale show no clipped text; no developer copy remains; no permanent chrome.
 
-- [ ] **Step 4: Fix and re-capture**
+- [x] **Step 4: Fix and re-capture**
 
 Fix defects in the owning task's files, rerun that task's tests, then re-capture only the affected states.
 
-- [ ] **Step 5: Update documentation**
+- [x] **Step 5: Update documentation**
 
 README: new widths, player bar, notices, bundled Inter plus OFL, capture recipe, remaining limits. ADR 0002: record the font and CSS-transition probe outcomes. ADR 0004: record captures performed and anything not verified.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add screenshots/matrix desktop-rust/README.md docs/adr/0002-visual-system.md docs/adr/0004-craft-done.md
@@ -728,6 +728,29 @@ git commit -m "docs: record the verified desktop UI state matrix"
 ```
 
 ---
+
+## Closeout
+
+Every step above is complete and the suites pass at the time of writing
+(`cargo test --locked`: 84 passed, 12 ignored; the 12 display tests pass one
+process each per `docs/RELEASE.md`; clippy clean). Two places where the result
+differs from this recipe, recorded so the plan is not read as literal:
+
+- **Task 11 Step 2/6 — the matrix is not committed.** `screenshots/` is
+  gitignored (`.gitignore`), so `git add screenshots/matrix` adds nothing. The
+  captures are working evidence on disk, not deliverables in the repository.
+- **Task 11 Step 3 — the 1.5×/2× text check cannot be met.** GTK 4 exposes no
+  app-side text scale and Ember declares its type in px, so the UI does not
+  grow with the desktop setting. Measured, and written up under *Captures* in
+  `docs/adr/0004-craft-done.md` rather than marked passed.
+
+Found and fixed while checking the matrix, beyond anything this plan asked for:
+white labels on the accent fill sat under the contrast floor; the sidebar
+selection indicator had never rendered (GTK clips an inset shadow to the
+rounded corner); unreachable artwork left placeholder discs in the hero collage
+and the sidebar; a destructive confirm was indistinguishable from a benign
+primary action; six notices named the bridge process instead of the problem;
+and a large playlist reported its length in five-digit minutes.
 
 ## Self-Review
 
