@@ -69,11 +69,10 @@ impl LyricsData {
                 if start > MAX_LYRIC_TIMESTAMP_MS {
                     return Err(LyricsError("invalid lyric timestamp"));
                 }
-                if let Some(end) = line.end_ms {
-                    if end < start || end > MAX_LYRIC_TIMESTAMP_MS {
+                if let Some(end) = line.end_ms
+                    && (end < start || end > MAX_LYRIC_TIMESTAMP_MS) {
                         return Err(LyricsError("invalid lyric interval"));
                     }
-                }
             } else if line.end_ms.is_some() {
                 return Err(LyricsError("invalid lyric interval"));
             }

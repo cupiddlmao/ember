@@ -668,6 +668,7 @@ impl Worker {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn worker_loop(
     config: BridgeConfig,
     kind: JobKind,

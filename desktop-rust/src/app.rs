@@ -357,11 +357,10 @@ fn activate(application: &gtk4::Application) {
             );
             return;
         }
-        if !toggle.is_active() {
-            if let Some(bridge) = &ui.bridge {
+        if !toggle.is_active()
+            && let Some(bridge) = &ui.bridge {
                 bridge.cancel_cache();
             }
-        }
     });
     let weak_ui = Rc::downgrade(&ui);
     settings.2.connect_clicked(move |_| {
@@ -2017,11 +2016,10 @@ impl AppUi {
             self.fail_playback(&message);
             return;
         }
-        if !data.stream_url.starts_with("file:") {
-            if let Some(bridge) = &self.bridge {
+        if !data.stream_url.starts_with("file:")
+            && let Some(bridge) = &self.bridge {
                 bridge.cache_track(&data.track);
             }
-        }
         self.player = Some(player);
         self.playback.mark_starting();
         self.set_loading_status("Starting playback…");
@@ -2036,12 +2034,11 @@ impl AppUi {
         if let Some(uri) = self.cached_playback.take() {
             self.player = None;
             if crate::cache::valid_local_uri(&uri) {
-                if let Some(path) = gtk4::gio::File::for_uri(&uri).path() {
-                    if std::fs::remove_file(path).is_ok() {
+                if let Some(path) = gtk4::gio::File::for_uri(&uri).path()
+                    && std::fs::remove_file(path).is_ok() {
                         self.begin_current(false);
                         return;
                     }
-                }
             } else {
                 self.begin_current(false);
                 return;
@@ -2094,12 +2091,11 @@ impl AppUi {
                     return;
                 }
                 PauseAction::PauseGst => {
-                    if let Some(player) = self.player.as_ref() {
-                        if let Err(message) = player.pause() {
+                    if let Some(player) = self.player.as_ref()
+                        && let Err(message) = player.pause() {
                             self.fail_playback(&message);
                             return;
                         }
-                    }
                     self.set_play_icon(false);
                     self.refresh_transport();
                     self.set_status("Paused.", false);
@@ -2216,13 +2212,12 @@ impl AppUi {
             self.restart_current_audio();
             return;
         }
-        if let Some(index) = self.queue.previous_index() {
-            if let Some(entry) = self.queue.select_index(index) {
+        if let Some(index) = self.queue.previous_index()
+            && let Some(entry) = self.queue.select_index(index) {
                 self.refresh_queue_view();
                 self.begin_entry(&entry, true);
                 return;
             }
-        }
         self.restart_current_audio();
     }
 
@@ -2427,13 +2422,12 @@ impl AppUi {
         if !self.playback.eos_begin() {
             return;
         }
-        if let Some(index) = self.queue.next_index() {
-            if self.queue.select_index(index).is_some() {
+        if let Some(index) = self.queue.next_index()
+            && self.queue.select_index(index).is_some() {
                 self.refresh_queue_view();
                 self.begin_current(true);
                 return;
             }
-        }
         self.player = None;
         self.prepared = None;
         self.playback.finish();
@@ -2937,11 +2931,10 @@ impl AppUi {
 
         let weak = self.self_weak.clone();
         fullscreen.window.connect_close_request(move |_| {
-            if let Some(app) = weak.upgrade() {
-                if let Ok(mut app) = app.try_borrow_mut() {
+            if let Some(app) = weak.upgrade()
+                && let Ok(mut app) = app.try_borrow_mut() {
                     app.lyrics_fullscreen = None;
                 }
-            }
             glib::Propagation::Proceed
         });
 
@@ -2972,13 +2965,12 @@ impl AppUi {
                         .lyrics_data
                         .as_ref()
                         .is_some_and(|data| data.kind == LyricsKind::Synced);
-                    if let Some(fullscreen) = app.lyrics_fullscreen.as_mut() {
-                        if fullscreen.following {
+                    if let Some(fullscreen) = app.lyrics_fullscreen.as_mut()
+                        && fullscreen.following {
                             fullscreen.cancel_scroll();
                             fullscreen.following = false;
                             fullscreen.follow.set_visible(synced);
                         }
-                    }
                 });
         }
         self.refresh_fullscreen_metadata();
@@ -3130,7 +3122,7 @@ impl AppUi {
         };
         fullscreen.spinner.stop();
         fullscreen.active = None;
-        fullscreen.attribution.set_text(&data.attribution());
+        fullscreen.attribution.set_text(data.attribution());
         fullscreen.attribution.set_visible(true);
         fullscreen.follow.set_visible(false);
         match data.kind {
@@ -3933,8 +3925,8 @@ fn install_callbacks(
 
     let weak = Rc::downgrade(ui);
     ui.borrow().window.connect_is_active_notify(move |window| {
-        if window.is_active() {
-            if let Some(app) = weak.upgrade() {
+        if window.is_active()
+            && let Some(app) = weak.upgrade() {
                 let Ok(app) = app.try_borrow() else {
                     return;
                 };
@@ -3942,7 +3934,6 @@ fn install_callbacks(
                     crate::library::LibraryPane::refresh_on_focus(&app.library);
                 }
             }
-        }
     });
     let weak = Rc::downgrade(ui);
     ui.borrow().window.connect_close_request(move |_| {

@@ -17,9 +17,11 @@ pub fn compact_player(width: i32) -> bool {
 mod imp {
     use super::*;
 
+    type WidthCallback = Rc<dyn Fn(i32)>;
+
     #[derive(Default)]
     pub struct ResponsiveBar {
-        pub(crate) callbacks: RefCell<Vec<Rc<dyn Fn(i32)>>>,
+        pub(crate) callbacks: RefCell<Vec<WidthCallback>>,
         last_width: Cell<i32>,
         pub(crate) child: RefCell<Option<gtk4::Box>>,
     }
