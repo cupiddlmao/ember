@@ -343,8 +343,11 @@ Closed since this pass, by the 0.4.0 release gates and device use:
 
 Still open:
 
-- **Offline downloads are in source but not device-tested** — see the section
-  above for what a device pass must cover.
+- **Offline downloads were device-verified on 2026-11-25** (build of 2026-11-25,
+  SHA-256 `8c1b9e34…`): download a playlist, airplane mode from a cold launch —
+  the app opens read-only and the downloaded playlist plays end to end. The
+  add-to-playlist sheet crash (nested sheets on iOS 26) was found and fixed in
+  the same device session.
 - **QueueCheck.swift, AudioCacheCheck.swift, and LyricsTimingCheck.swift run
   only in the manual macOS workflow**; their runtime result has not been
   reviewed from a real run.
@@ -362,9 +365,9 @@ queue state, Spicy Lyrics, Apple Music lyrics, public hosting, and any fake
 login screen. Search remains public-catalog only, and playlists remain
 public/unlisted only. Song radio, Last.fm reporting and offline playlist
 downloads shipped: radio and Last.fm in 0.4.0, offline downloads in source
-(needs a device pass before a release states it as verified).
+(device-verified 2026-11-25, ready for the next release to claim).
 
-## Offline playlist downloads (source, awaiting a device pass)
+## Offline playlist downloads (source, device-verified 2026-11-25)
 
 An Ember playlist can be downloaded for offline play from its detail screen's
 actions menu. Audio files go to `Application Support/Ember/Offline/{videoId}.m4a`
