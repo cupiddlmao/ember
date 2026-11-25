@@ -220,9 +220,9 @@ struct PlaylistDetailView: View {
         .padding(.horizontal, 12)
         .frame(height: 42)
         .background(EmberTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous)
                 .stroke(EmberTheme.hairline, lineWidth: 1)
         )
         .padding(.horizontal, 20)
@@ -241,7 +241,8 @@ struct PlaylistDetailView: View {
                     PlaylistTrackRow(
                         track: item.track,
                         number: item.index + 1,
-                        isPreparing: model.preparingTrackID == item.track.id
+                        isPreparing: model.preparingTrackID == item.track.id,
+                        isCurrent: model.currentQueueEntry?.track.id == item.track.id
                     ) {
                         model.play(tracks: tracks, startingAt: item.index)
                     }
@@ -314,20 +315,29 @@ private struct PlaylistTrackRow: View {
     let track: Track
     let number: Int
     let isPreparing: Bool
+    var isCurrent: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 11) {
-                Text("\(number)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(EmberTheme.faintText)
-                    .frame(width: 24, alignment: .trailing)
+            HStack(spacing: 12) {
+                Group {
+                    if isCurrent {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(EmberTheme.pink)
+                    } else {
+                        Text("\(number)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(EmberTheme.faintText)
+                    }
+                }
+                .frame(width: 24, alignment: .trailing)
                 ArtworkView(url: track.artworkUrl, size: 46, corner: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.title)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(isCurrent ? EmberTheme.pinkSoft : .white)
                         .lineLimit(1)
                     Text(track.artist)
                         .font(.system(size: 12))
@@ -345,8 +355,13 @@ private struct PlaylistTrackRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous)
+                    .fill(isCurrent ? EmberTheme.selectedFill : Color.clear)
+            )
             .contentShape(Rectangle())
+            .animation(EmberTheme.stateChange, value: isCurrent)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(EmberRowPressStyle())
     }
 }
