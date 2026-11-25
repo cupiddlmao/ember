@@ -1,6 +1,6 @@
 import Foundation
 
-struct QueueEntry: Identifiable, Equatable {
+struct QueueEntry: Identifiable, Codable, Equatable {
     let id: UUID
     let track: Track
 
@@ -134,6 +134,67 @@ struct PlaybackQueue {
     mutating func removeAll() {
         entries = []
         currentID = nil
+    }
+}
+
+/// Everything needed to bring the queue back after a cold launch.
+struct QueueSnapshot: Codable {
+    var entries: [QueueEntry]
+    var currentID: UUID?
+}
+
+extension PlaybackQueue {
+    init(snapshot: QueueSnapshot) {
+        self.init()
+        entries = snapshot.entries
+        currentID = snapshot.currentID
+        // A stale currentID pointing outside the entries selects nothing.
+        if let id = currentID, !entries.contains(where: { $0.id == id }) {
+            currentID = nil
+        }
+    }
+
+    var snapshot: QueueSnapshot {
+        QueueSnapshot(entries: entries, currentID: currentID)
+    }
+}
+
+/// Durable copy of the queue so playback intent survives an app restart.
+/// Best-effort by design: a failed save loses nothing but the queue.
+enum QueueStateStore {
+    static func load() -> QueueSnapshot? {
+        guard let url = try? fileURL(),
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(QueueSnapshot.self, from: data)
+    }
+
+    static func save(_ snapshot: QueueSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot),
+              let url = try? fileURL() else {
+            return
+        }
+        try? data.write(
+            to: url,
+            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        )
+    }
+
+    private static func fileURL() throws -> URL {
+        guard let support = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let directory = support.appendingPathComponent("Ember", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+        return directory.appendingPathComponent("QueueState.json")
     }
 }
 
