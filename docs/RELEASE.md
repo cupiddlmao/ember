@@ -15,13 +15,14 @@ There is no single version constant; four places have to be edited by hand.
 
 | Component | Where | Current |
 | --- | --- | --- |
-| Desktop | `desktop-rust/Cargo.toml` | `0.1.0` |
-| Backend | `mobile/backend/http_api.py` (`VERSION`) | `0.3.0` |
-| Backend image | `mobile/backend/docker-compose.yml` (`image:`) | `ember-mobile-api:0.3.0` |
-| iPhone | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `0.3.0` / `3` |
+| Desktop | `desktop-rust/Cargo.toml` | `0.4.0` |
+| Backend | `mobile/backend/http_api.py` (`VERSION`) | `0.4.0` |
+| Backend image | `mobile/backend/docker-compose.yml` (`image:`) | `ember-mobile-api:0.4.0` |
+| iPhone | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `0.4.0` / `4` |
 
 ```bash
 grep -m1 '^version' desktop-rust/Cargo.toml
+grep -A1 'name = "ember-rust"' desktop-rust/Cargo.lock | grep -m1 '^version'  # must match
 grep -n 'VERSION = ' mobile/backend/http_api.py
 grep -n 'image:' mobile/backend/docker-compose.yml
 grep -E 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' \
@@ -29,6 +30,10 @@ grep -E 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' \
 ```
 
 - [ ] Backend `VERSION` and the Compose image tag match.
+- [ ] Desktop `Cargo.toml` and `Cargo.lock` carry the release version. Settings
+      ▸ About prints `env!("CARGO_PKG_VERSION")` straight to the user, and the
+      desktop shipped `0.1.0` for 27 commits while every other component was on
+      `0.3.0`; nothing in this checklist looked at it.
 - [ ] The iPhone bundle version is bumped when app behaviour changes, so a
       SideStore install is distinguishable from the previous one.
 - [ ] No stale version strings elsewhere. LRCLIB identifies clients by the
@@ -108,7 +113,7 @@ docker compose -p ember-mobile ps
 ```bash
 set -a; . ./.env; set +a
 curl -fsS -H "Authorization: Bearer $EMBER_API_TOKEN" \
-  http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.3.0","commit":"…"}
+  http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.4.0","commit":"…"}
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/v1/health   # 401
 ```
 
@@ -168,12 +173,12 @@ Tag the commit whose CI run you verified in gate 1, and build the IPA from the
 tag so the bundle can be traced back to it.
 
 ```bash
-git tag -a v0.3.0 -m "Ember 0.3.0"
-git push origin v0.3.0
+git tag -a v0.4.0 -m "Ember 0.4.0"
+git push origin v0.4.0
 ```
 
 - [ ] Tag pushed, pointing at the commit you actually released.
-- [ ] `git cat-file -t v0.3.0` prints `tag`: annotated, not lightweight.
+- [ ] `git cat-file -t v0.4.0` prints `tag`: annotated, not lightweight.
 - [ ] IPA built by dispatching `ios-unsigned` **on the tag**, and
       `EmberGitCommit` inside the bundle equals the tag's short SHA.
 - [ ] Record the three artifacts: desktop build, IPA SHA-256 and size, backend

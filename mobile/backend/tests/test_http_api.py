@@ -316,7 +316,7 @@ class ApiTests(unittest.TestCase):
     def test_public_ember_prefix_is_accepted(self):
         status, _, body = self.request("/ember/v1/health")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["version"], "0.3.0")
+        self.assertEqual(json.loads(body)["version"], "0.4.0")
 
     def test_playlist_preview_and_pagination_are_authenticated(self):
         url = "https://music.youtube.com/playlist?list=PL1234567890"
