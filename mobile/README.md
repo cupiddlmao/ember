@@ -1,7 +1,7 @@
 # Ember Mobile — native client and private backend
 
 Backend 0.3.0 adds [Ember-owned shared playlists](backend/LIBRARY_API.md). The backend is
-deployed at the existing `/ember` address and reports 0.3.0 from `GET /v1/health`.
+deployed at the existing `/ember` address and reports 0.4.0 from `GET /v1/health`.
 SwiftUI shared-library integration is implemented in source; the macOS build and
 iPhone checks remain pending. Desktop integration is implemented and working against
 that server in `desktop-rust/`.
@@ -66,7 +66,7 @@ This milestone adds a saved playlist library, ordered queue playback, and synced
 - Public and unlisted YouTube Music playlists only. Playlist links are parsed with the existing `music.music_link` helper and loaded through the existing anonymous `music.search` path. No Google account is involved.
 - Playlist results preserve duplicate song occurrences and track order, skip malformed/unavailable entries, report an unavailable count, and cap a loaded playlist at 5,000 tracks. A larger playlist returns an explicit error.
 - Playlist pages are bounded to 100 tracks and cached for 15 minutes; repeated page requests reuse the same parsed playlist.
-- Lyrics use [LRCLIB](https://lrclib.net/) only. No API key is required, and the backend identifies itself with `EmberMobile/0.3.0 (https://github.com/cupiddlmao/ember)`.
+- Lyrics use [LRCLIB](https://lrclib.net/) only. No API key is required, and the backend identifies itself with `EmberMobile/0.4.0 (https://github.com/cupiddlmao/ember)`.
 - LRC line timing is supported. Word timing is accepted only from an explicit LRCLIB Lyricsfile YAML `words` array with start timestamps and optional end timestamps. Missing word ends stay missing; they are never estimated from line timing.
 - PyYAML parses Lyricsfile with aliases disabled and a fixed, bounded schema.
 - Fixed, credential-free error messages; unexpected exception details are never returned to the client.
@@ -119,7 +119,7 @@ docker compose -p ember-mobile up -d --build
 docker compose -p ember-mobile ps
 ```
 
-The image tag in Compose is `ember-mobile-api:0.3.0`. The build installs `PyYAML`, copies `playlist_search.py`, and includes the new playlist/lyrics services. The named audio-cache volume is preserved, and a separate playlist-library volume stores SQLite data outside the audio cache. Keep Compose project `ember-mobile`, the existing `.env` token and Tailscale `/ember` mount. Compose defaults to `127.0.0.1:18080` (set `EMBER_HOST_PORT` to preserve a different existing mapping). Do not run `down -v`. See [library storage and backups](backend/LIBRARY_API.md).
+The image tag in Compose is `ember-mobile-api:0.4.0`. The build installs `PyYAML`, copies `playlist_search.py`, and includes the new playlist/lyrics services. The named audio-cache volume is preserved, and a separate playlist-library volume stores SQLite data outside the audio cache. Keep Compose project `ember-mobile`, the existing `.env` token and Tailscale `/ember` mount. Compose defaults to `127.0.0.1:18080` (set `EMBER_HOST_PORT` to preserve a different existing mapping). Do not run `down -v`. See [library storage and backups](backend/LIBRARY_API.md).
 
 Check health without putting the key in a URL:
 
@@ -127,7 +127,7 @@ Check health without putting the key in a URL:
 set -a; . ./.env; set +a
 curl -fsS -H "Authorization: Bearer $EMBER_API_TOKEN" \
   http://127.0.0.1:18080/v1/health
-# {"status":"ok","version":"0.3.0"}
+# {"status":"ok","version":"0.4.0","commit":"<full SHA the image was built from>"}
 ```
 
 Preview a public playlist:
@@ -212,7 +212,7 @@ All routes require `Authorization: Bearer <EMBER_API_TOKEN>`. Errors are JSON:
 
 | Route | Result |
 | --- | --- |
-| `GET /v1/health` | `{"status":"ok","version":"0.3.0","commit":"bc01946"}`; `commit` is the image's build commit, or `unknown` when the image was built without it |
+| `GET /v1/health` | `{"status":"ok","version":"0.4.0","commit":"4f78dd0e4de568bc42cb0986fc3d8e353b541cd3"}`; `commit` is the image's build commit, or `unknown` when the image was built without `EMBER_GIT_COMMIT` — which Compose does by default, so export it |
 | `GET /v1/search?q=…&limit=20` | `{"tracks":[…]}`; query max 200 chars, limit clamped to 1–25 |
 | `GET /v1/tracks/{11-char-id}/audio` | `audio/mp4` M4A bytes |
 | `GET /v1/playlists/preview?url=…&limit=50` | Playlist summary plus the first bounded page |
@@ -280,9 +280,9 @@ xcodebuild -project EmberMobile.xcodeproj \
   build
 ```
 
-It then packages `Payload/EmberMobile.app` into an IPA, verifies there is no `_CodeSignature`, checks that `UIBackgroundModes` contains `audio`, verifies that `EmberGitCommit` matches the checked-out short SHA, prints a SHA-256, and uploads the artifact. Before uploading it reads `EmberGitCommit` back out of the packaged IPA and fails unless that value equals the commit of the ref the run was dispatched on, so dispatching `v0.3.0` cannot upload an artifact built from a different commit. If the build fails, the **xcodebuild-log** artifact is uploaded for diagnosis.
+It then packages `Payload/EmberMobile.app` into an IPA, verifies there is no `_CodeSignature`, checks that `UIBackgroundModes` contains `audio`, verifies that `EmberGitCommit` matches the checked-out short SHA, and uploads the artifact. It computes **no SHA-256 of the IPA itself**: the only digest in the log is GitHub's `SHA256 digest of uploaded artifact zip`, which describes the zip wrapper. Before uploading it reads `EmberGitCommit` back out of the packaged IPA and fails unless that value equals the commit of the ref the run was dispatched on, so dispatching `v0.4.0` cannot upload an artifact built from a different commit. If the build fails, the **xcodebuild-log** artifact is uploaded for diagnosis.
 
-The app bundle identifier is `com.ember.mobile`; version `0.3.0` (build `3`). SideStore re-signs the app, so CI never needs your Apple ID.
+The app bundle identifier is `com.ember.mobile`; version `0.4.0` (build `4`). SideStore re-signs the app, so CI never needs your Apple ID.
 
 The in-app **Settings** screen shows the bundle's version and build number, plus the short Git commit injected by the workflow. Local Xcode builds use the `local` fallback and show **Local build**.
 
@@ -390,7 +390,7 @@ The tests do not contact YouTube Music or LRCLIB and do not need a token. The re
 ## 2026-11-05 milestone notes
 
 - Added the mobile library/queue/lyrics surface without changing the desktop app.
-- Backend version and Compose image tag are `0.3.0`; the iPhone bundle version is independent. Shared-library client integration is implemented in the Rust client and SwiftUI source.
+- Backend version and Compose image tag are `0.4.0`; the iPhone bundle version is independent. Shared-library client integration is implemented in the Rust client and SwiftUI source.
 - The queue self-check runs before the unsigned IPA build. It checks ordering, duplicate IDs, cancellation generations, and end-of-queue behavior.
 - After installing on iPhone, verify in particular: full playlist load and start-at-track; Play Next/Add to Queue with a duplicate track; remove/reorder/clear while playing; next/previous from the lock screen; locking the phone during a long queue; lyric tap-to-seek; manual scroll/Resume; and plain/instrumental/no-lyrics states with real tracks.
 

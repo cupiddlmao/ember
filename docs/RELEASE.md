@@ -106,14 +106,39 @@ executable.
 
 ## 4. Python backend
 
-Deploy on the Ubuntu VM. Keep the existing `.env`, token, Compose project
-(`ember-mobile`) and Tailscale `/ember` mount.
+Deploy on the Ubuntu VM: `cyn@10.0.0.116`, which is `homelab-dashboard` on the
+tailnet, with the checkout at `~/ember-mobile`. Keep the existing `.env`, token,
+Compose project (`ember-mobile`) and Tailscale `/ember` mount.
+
+The deploy directory must be a **git checkout**, not a copy of the files. A copy
+cannot say what is running: `~/ember-mobile` was a 24-file snapshot frozen at
+Nov 8 with no `.git` and a compose file missing the build-arg block, and the
+container reported itself healthy for two weeks on top of it. `git log -1` is
+the only statement a deployment can make about itself.
 
 ```bash
+cd ~/ember-mobile
+git status --porcelain                       # must be empty
+git fetch origin && git checkout <SHA or tag you are releasing>
+git log --oneline -1                         # must print that commit
+
 cd mobile/backend
 [ -f .env ] || cp .env.example .env   # then set EMBER_API_TOKEN
 chmod 600 .env
-docker compose -p ember-mobile up -d --build
+
+# Both volumes, before anything else. See "Never down -v" below.
+mkdir -p ~/backups
+for v in ember-mobile_audio-cache ember-mobile_playlist-library; do
+  docker run --rm -v "$v":/v -v ~/backups:/b alpine \
+    tar czf "/b/$v-$(date +%F-%H%M).tgz" -C /v .
+done
+ls -lh ~/backups                             # you want to SEE today's files
+
+# EMBER_GIT_COMMIT is what puts the commit into /v1/health and the image label.
+# Compose defaults it to "unknown", so forgetting it silently downgrades the
+# release record: the version stays right and the provenance disappears.
+EMBER_GIT_COMMIT=$(cd .. && git rev-parse HEAD) \
+  docker compose -p ember-mobile up -d --build
 docker compose -p ember-mobile ps
 ```
 
@@ -125,6 +150,8 @@ docker compose -p ember-mobile ps
 set -a; . ./.env; set +a
 curl -fsS -H "Authorization: Bearer $EMBER_API_TOKEN" \
   http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.4.0","commit":"…"}
+# `commit` must be the full SHA you checked out. "unknown" means you built
+# without EMBER_GIT_COMMIT: rebuild with it, do not ship the unstamped image.
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/v1/health   # 401
 ```
 
@@ -152,8 +179,12 @@ build counts.
 
 - [ ] All steps succeed. The only expected skip is
       `Upload build log on failure`.
-- [ ] The `Package unsigned IPA` step printed a SHA-256 — note it here to
-      compare against gate 7's tagged build: `____________________`.
+- [ ] Record the artifact size and the upload digest. **The workflow computes
+      no SHA-256 of the IPA** — `grep -c sha256 .github/workflows/ios-unsigned.yml`
+      is `0` — so the only digest that exists is GitHub's artifact-zip digest,
+      printed by the upload step as `SHA256 digest of uploaded artifact zip`.
+      That identifies the zip, not the binary inside it; never record it as the
+      IPA's hash. Size: `__________`  zip digest: `____________________`.
 - [ ] Artifact `EmberMobile-unsigned-ipa` downloaded (about 1.06 MB).
 - [ ] `Git commit:` in the log equals `git rev-parse --short=7 HEAD`.
 

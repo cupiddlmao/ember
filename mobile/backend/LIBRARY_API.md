@@ -1,8 +1,9 @@
-# Ember-owned playlist library — backend 0.3.0
+# Ember-owned playlist library — API introduced in backend 0.3.0, unchanged in 0.4.0
 
-Deployed and serving 0.3.0 at the existing `/ember` address: `GET /v1/health` returns
-`{"status": "ok", "version": "0.3.0", "commit": "bc01946"}`, where `commit` is the revision the
-image was built from, and the library and Last.fm routes answer with the
+Deployed and serving 0.4.0 at the existing `/ember` address: `GET /v1/health` returns
+`{"status": "ok", "version": "0.4.0", "commit": "4f78dd0e4de568bc42cb0986fc3d8e353b541cd3"}`,
+where `commit` is the revision the image was built from (it reads `unknown` if
+the build ran without `EMBER_GIT_COMMIT`), and the library and Last.fm routes answer with the
 existing access key. SwiftUI integration is implemented in source (macOS build/device checks
 pending); Rust integration is implemented and works against the live server (native
 interaction checks pending).
@@ -121,8 +122,8 @@ Compose mounts a separate `playlist-library` volume. The Docker image prepares t
 mount directory for UID 10001. Restart/rebuild preserves data. `down -v` deletes it.
 
 Keep project `ember-mobile`, the existing `.env` bearer key, audio-cache volume and
-Tailscale `/ember` proxy. Compose 0.3.0 defaults to the user's loopback host port18080;
-`EMBER_HOST_PORT` can preserve another existing host mapping. Container port stays8080.
+Tailscale `/ember` proxy. Compose 0.4.0 defaults to the user's loopback host port 18080;
+`EMBER_HOST_PORT` can preserve another existing host mapping. Container port stays 8080.
 No deployment or token rotation is required to develop/test this locally.
 
 For a live consistent backup, use SQLite's backup API rather than copying the files.
