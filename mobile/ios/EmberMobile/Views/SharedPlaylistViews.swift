@@ -312,7 +312,11 @@ struct SharedPlaylistDetailView: View {
                 return await library.submit(.update(playlist, name: name, entries: entries))
             }
         }
-        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
+        .sheet(item: $addingTrack) { track in
+            AddToPlaylistView(track: track)
+                .environmentObject(library)
+                .environmentObject(model)
+        }
         .confirmationDialog("Delete this playlist from all devices?", isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete playlist", role: .destructive) {
                 guard let playlist else { return }

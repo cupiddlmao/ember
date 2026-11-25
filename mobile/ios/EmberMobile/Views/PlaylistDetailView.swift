@@ -11,6 +11,7 @@ struct PlaylistDetailView: View {
 
     @State private var addingTrack: Track?
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var library: SharedLibraryModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var tracks: [Track] = []
@@ -70,7 +71,11 @@ struct PlaylistDetailView: View {
             }
         }
         .toolbar(.visible, for: .tabBar)
-        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
+        .sheet(item: $addingTrack) { track in
+            AddToPlaylistView(track: track)
+                .environmentObject(library)
+                .environmentObject(model)
+        }
         .task { await loadAll() }
     }
 
