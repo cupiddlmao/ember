@@ -98,9 +98,9 @@ struct SettingsView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
                                 .background(EmberTheme.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous)
                                         .stroke(EmberTheme.hairline, lineWidth: 1)
                                 )
                         }

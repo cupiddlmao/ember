@@ -65,7 +65,7 @@ struct SharedLibrarySection: View {
                         }
                         Image(systemName: "chevron.right").font(.caption)
                     }.padding(12).emberCard()
-                }.buttonStyle(.plain)
+                }.buttonStyle(EmberRowPressStyle(radius: EmberTheme.cardRadius))
             }
         }
         .task { await library.refresh() }

@@ -207,9 +207,9 @@ struct LyricsView: View {
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
         .background(Color.white.opacity(0.055))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous)
                 .stroke(EmberTheme.hairline, lineWidth: 1)
         )
     }
