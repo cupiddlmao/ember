@@ -106,13 +106,14 @@ struct AppModelCheck {
 
     @MainActor
     static func main() async {
-        let model = AppModel()
+        let model = AppModel(persistsQueue: false)
         model.serverURL = "https://example.invalid/ember"
         model.accessKey = "test-only"
         await model.connect()
         assert(model.isConnected)
         let a = Track(id: "aaaaaaaaaaa", title: "A", artist: "Artist", album: "", durationMs: 1000, artworkUrl: nil)
         let b = Track(id: "bbbbbbbbbbb", title: "B", artist: "Artist", album: "", durationMs: 1000, artworkUrl: nil)
+        let c = Track(id: "ccccccccccc", title: "C", artist: "Artist", album: "", durationMs: 1000, artworkUrl: nil)
         let file = URL(fileURLWithPath: "/tmp/test.m4a")
 
         // A cancellation-ignoring download must never start after Pause.
@@ -147,7 +148,7 @@ struct AppModelCheck {
         await waitUntil("B playing") { model.player.played.last == b.id }
         assert(model.currentQueueEntry?.track == b)
         model.disconnect()
-        let radioModel = AppModel()
+        let radioModel = AppModel(persistsQueue: false)
         radioModel.serverURL = "https://example.invalid/ember"
         radioModel.accessKey = "test-only"
         await radioModel.connect()
@@ -177,6 +178,21 @@ struct AppModelCheck {
         radioModel.disconnect()
         APIClient.pending.removeValue(forKey: b.id)!.resume(returning: file)
         for _ in 0..<100 { await Task.yield() }
+
+        // Queue persistence: a fresh model restores the queue visible but idle,
+        // with nothing fetched from the network until the user taps play.
+        let entries = [QueueEntry(track: a), QueueEntry(track: b), QueueEntry(track: c)]
+        QueueStateStore.save(QueueSnapshot(entries: entries, currentID: entries[1].id))
+        let reloadedModel = AppModel(persistsQueue: true)
+        assert(reloadedModel.currentQueueEntry?.track.id == b.id, "the queue survives a cold launch")
+        assert(reloadedModel.queue.upcoming.map(\.track.id) == [c.id])
+        assert(!reloadedModel.isCurrentTrackLoaded, "a restored queue is idle until the user taps play")
+        let snapshot = QueueStateStore.load()
+        assert(snapshot != nil && !snapshot!.entries.isEmpty)
+        QueueStateStore.save(QueueSnapshot(entries: [], currentID: nil))
+        let emptyModel = AppModel(persistsQueue: true)
+        assert(emptyModel.currentQueueEntry == nil, "an emptied saved queue restores as nothing")
+
         print("AppModel cancellation, radio, retry and queue recovery checks passed")
     }
 }

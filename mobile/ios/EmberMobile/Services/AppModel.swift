@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -39,13 +40,29 @@ final class AppModel: ObservableObject {
     private var playbackGate = PlaybackGate()
     private var playingEntryID: UUID?
     private var didRestore = false
+    private let persistsQueue: Bool
+    private var queueStateCancellable: AnyCancellable?
 
     private static let serverURLKey = "ember.server.url"
 
-    init() {
+    init(persistsQueue: Bool = true) {
+        self.persistsQueue = persistsQueue
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? ""
         accessKey = ""
         savedPlaylists = PlaylistStore.load()
+        if persistsQueue,
+           let snapshot = QueueStateStore.load(),
+           !snapshot.entries.isEmpty {
+            // The queue comes back visible but idle: tapping play fetches the
+            // current track again, from the offline copy when one exists.
+            queue = PlaybackQueue(snapshot: snapshot)
+        }
+        if persistsQueue {
+            queueStateCancellable = $queue.dropFirst().sink { [weak self] value in
+                guard let self, self.persistsQueue else { return }
+                QueueStateStore.save(value.snapshot)
+            }
+        }
         player.lastFM.client = { [weak self] in self?.client }
         player.lastFM.onReauthRequired = { [weak self] needed in
             self?.lastFMNeedsReauth = needed
