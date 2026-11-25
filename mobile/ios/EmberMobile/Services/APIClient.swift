@@ -220,7 +220,8 @@ struct APIClient {
         guard size > 0, size <= 48 * 1024 * 1024 else {
             throw size > 0 ? APIError.fileTooLarge : APIError.invalidResponse
         }
-        if let expected = http.expectedContentLength, expected > 0, Int64(expected) != size {
+        let expected = http.expectedContentLength
+        if expected > 0, Int64(expected) != size {
             throw APIError.invalidResponse
         }
         try? FileManager.default.removeItem(at: destination)
