@@ -58,6 +58,25 @@ struct SettingsView: View {
                         )
 
                         VStack(alignment: .leading, spacing: 8) {
+                            Text("OFFLINE")
+                                .font(.system(size: 10, weight: .bold))
+                                .tracking(1.4)
+                                .foregroundStyle(EmberTheme.faintText)
+                            Text("\(model.offline.playlists.count) downloaded playlist\(model.offline.playlists.count == 1 ? "" : "s") \u{00b7} \(OfflineStore.byteText(model.offline.bytesUsed())) of \(OfflineStore.byteText(OfflineStore.byteCap))")
+                                .font(.system(size: 13))
+                                .foregroundStyle(EmberTheme.secondaryText)
+                            Button("Remove all downloads", role: .destructive) {
+                                try? model.offline.removeAll()
+                            }
+                            .disabled(model.offline.playlists.isEmpty || model.offline.isDownloading)
+                            Text("Downloaded playlists keep playing without the server. Storage is capped; download something again if the cap stopped it early.")
+                                .font(.caption)
+                                .foregroundStyle(EmberTheme.secondaryText)
+                        }
+                        .padding(16)
+                        .emberCard()
+
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("PRIVACY")
                                 .font(.system(size: 10, weight: .bold))
                                 .tracking(1.4)

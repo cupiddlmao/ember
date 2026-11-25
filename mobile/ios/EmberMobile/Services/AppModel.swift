@@ -30,6 +30,7 @@ final class AppModel: ObservableObject {
     let player = PlayerController()
 
     @Published private(set) var client: APIClient? = nil
+    let offline = OfflineStore()
     private var radioTask: Task<Void, Never>?
     private var radioToken = UUID()
     private var searchTask: Task<Void, Never>?
@@ -103,9 +104,16 @@ final class AppModel: ObservableObject {
 
         isConnecting = true
         defer { isConnecting = false }
+        let api: APIClient
         do {
             let url = try normalizedServerURL(serverURL)
-            let api = APIClient(baseURL: url, token: accessKey)
+            api = APIClient(baseURL: url, token: accessKey)
+        } catch {
+            client = nil
+            connectionError = "Could not reconnect to the saved server. Check Tailscale, then try again."
+            return
+        }
+        do {
             try await api.health()
             client = api
             connectionError = nil
@@ -113,8 +121,11 @@ final class AppModel: ObservableObject {
             client = nil
             connectionError = "The server rejected the saved access key. Enter the current key from the server's .env file."
         } catch {
-            client = nil
-            connectionError = "Could not reconnect to the saved server. Check Tailscale, then try again."
+            // A transport failure keeps the client so downloaded playlists and
+            // cached audio stay usable offline; online requests fail on their
+            // own and the library reads its cached copy read-only.
+            client = api
+            connectionError = nil
         }
     }
 
@@ -378,18 +389,31 @@ final class AppModel: ObservableObject {
 
     private func beginPlayback(_ entry: QueueEntry) {
         cancelRadio()
-        guard let api = client else { return }
         player.pause()
         playingEntryID = nil
         preparationTask?.cancel()
         prefetchTask?.cancel()
         prefetchTask = nil
+
+        // Downloaded audio plays without any server round trip — even signed
+        // out or with the server unreachable.
+        if let offlineURL = offline.fileURL(for: entry.track.id) {
+            preparingTrackID = nil
+            preparingEntryID = nil
+            playingEntryID = entry.id
+            player.play(track: entry.track, fileURL: offlineURL)
+            startPrefetch()
+            return
+        }
+
+        guard let api = client else { return }
         let token = playbackGate.next()
         preparingTrackID = entry.track.id
         preparingEntryID = entry.id
         errorMessage = nil
 
-        let protected = Set([player.track?.id, Optional(entry.track.id)].compactMap { $0 })
+        let protected = offline.pinnedTrackIDs()
+            .union([player.track?.id, Optional(entry.track.id)].compactMap { $0 })
         preparationTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -466,8 +490,10 @@ final class AppModel: ObservableObject {
         guard !candidates.isEmpty else { return }
         let token = playbackGate.value
         let currentID = queue.currentID
-        let protected = Set(
-            ([queue.current?.track.id] + candidates.map { Optional($0.track.id) }).compactMap { $0 }
+        let protected = offline.pinnedTrackIDs().union(
+            Set(
+                ([queue.current?.track.id] + candidates.map { Optional($0.track.id) }).compactMap { $0 }
+            )
         )
         prefetchTask = Task { [weak self] in
             for candidate in candidates {
@@ -478,6 +504,8 @@ final class AppModel: ObservableObject {
                       self.client != nil else {
                     return
                 }
+                // Already-downloaded audio needs no prefetch request.
+                guard self.offline.fileURL(for: candidate.track.id) == nil else { continue }
                 _ = try? await api.downloadAudio(
                     for: candidate.track,
                     protectingTrackIDs: protected

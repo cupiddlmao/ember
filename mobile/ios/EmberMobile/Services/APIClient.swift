@@ -169,9 +169,71 @@ struct APIClient {
         return destination
     }
 
+    /// Downloads one track's audio into an arbitrary directory (the offline
+    /// store) without touching the streaming cache. Writes to a temporary
+    /// name and renames only after the bytes validate, so a crash can never
+    /// leave a truncated file where the manifest expects audio.
+    func fetchAudio(for track: Track, into directory: URL) async throws -> URL {
+        let destination = directory.appendingPathComponent("\(track.id).m4a")
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path),
+           let size = attributes[.size] as? NSNumber,
+           size.intValue > 0, size.intValue <= 48 * 1024 * 1024 {
+            return destination
+        }
+        let temporary = directory.appendingPathComponent("\(UUID().uuidString).part")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        var request = URLRequest(url: endpoint("v1", "tracks", track.id, "audio"))
+        request.timeoutInterval = 180
+        authorize(&request)
+        request.setValue("audio/mp4", forHTTPHeaderField: "Accept")
+
+        let downloadResult: (URL, URLResponse)
+        do {
+            downloadResult = try await session.download(for: request)
+        } catch let error as URLError {
+            throw APIError.transport(message(for: error))
+        } catch {
+            throw APIError.transport("Could not download the audio.")
+        }
+        let response = downloadResult.1
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        if http.statusCode != 200 {
+            let data = (try? Data(contentsOf: downloadResult.0, options: .mappedIfSafe))
+                .flatMap { $0.count < 16_384 ? $0 : nil }
+            throw serverError(status: http.statusCode, data: data)
+        }
+        let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        guard contentType.hasPrefix("audio/mp4") else {
+            throw APIError.invalidResponse
+        }
+        try? FileManager.default.removeItem(at: temporary)
+        do {
+            try FileManager.default.moveItem(at: downloadResult.0, to: temporary)
+        } catch {
+            throw APIError.transport("Could not save the downloaded audio.")
+        }
+        let size = (try? temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size > 0, size <= 48 * 1024 * 1024 else {
+            throw size > 0 ? APIError.fileTooLarge : APIError.invalidResponse
+        }
+        if let expected = http.expectedContentLength, expected > 0, Int64(expected) != size {
+            throw APIError.invalidResponse
+        }
+        try? FileManager.default.removeItem(at: destination)
+        do {
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        } catch {
+            throw APIError.transport("Could not save the downloaded audio.")
+        }
+        return destination
+    }
+
     static func trimAudioCache(_ directory: URL, protecting names: Set<String>,
-                               maxBytes: Int = 512 * 1024 * 1024) throws {
-        let files = try FileManager.default.contentsOfDirectory(
+                               maxBytes: Int = 512 * 1024 * 1024) throws {        let files = try FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
         ).filter { $0.pathExtension == "m4a" }.map { url in
             let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])

@@ -169,6 +169,16 @@ jobs:
             -o /tmp/ember-library-check
           /tmp/ember-library-check
 
+      - name: Check offline download manifests, pins and eviction
+        run: |
+          swiftc -parse-as-library \
+            mobile/ios/EmberMobile/Models/Track.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
+            mobile/ios/EmberMobile/Services/OfflineStore.swift \
+            mobile/ios/tests/OfflineStoreCheck.swift \
+            -o /tmp/ember-offline-check
+          /tmp/ember-offline-check
+
       - name: Check Last.fm listening excludes pause, buffering and seeks
         run: |
           swiftc -parse-as-library \
