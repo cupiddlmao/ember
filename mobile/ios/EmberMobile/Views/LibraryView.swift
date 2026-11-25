@@ -28,7 +28,7 @@ struct LibraryView: View {
                             } label: {
                                 PlaylistRow(playlist: playlist)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(EmberRowPressStyle(radius: EmberTheme.cardRadius))
                             .contextMenu {
                                 Button("Remove saved link", role: .destructive) { pendingRemoval = playlist }
                             }
@@ -112,9 +112,9 @@ private struct PlaylistRow: View {
         }
         .padding(10)
         .background(EmberTheme.surface.opacity(0.86))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: EmberTheme.cardRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: EmberTheme.cardRadius, style: .continuous)
                 .stroke(EmberTheme.hairline, lineWidth: 1)
         )
         .contentShape(Rectangle())

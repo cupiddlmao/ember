@@ -7,9 +7,18 @@ enum EmberTheme {
     static let pink = Color(red: 1.0, green: 0.31, blue: 0.55)
     static let pinkDeep = Color(red: 0.78, green: 0.10, blue: 0.34)
     static let pinkSoft = Color(red: 1.0, green: 0.62, blue: 0.76)
-    static let secondaryText = Color.white.opacity(0.58)
-    static let faintText = Color.white.opacity(0.38)
-    static let hairline = Color.white.opacity(0.08)
+    static let secondaryText = Color.white.opacity(0.68)
+    static let faintText = Color.white.opacity(0.50)
+    static let hairline = Color.white.opacity(0.06)
+    /// Tint for the selected / currently playing row, mirroring desktop.
+    static let selectedFill = pink.opacity(0.12)
+    static let selectedStroke = pink.opacity(0.28)
+    static let pressedFill = Color.white.opacity(0.06)
+
+    static let cardRadius: CGFloat = 16
+    static let controlRadius: CGFloat = 12
+    static let press = Animation.easeOut(duration: 0.14)
+    static let stateChange = Animation.easeInOut(duration: 0.22)
 
     static var backgroundGradient: LinearGradient {
         LinearGradient(
@@ -36,9 +45,9 @@ private struct EmberCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(EmberTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: EmberTheme.cardRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: EmberTheme.cardRadius, style: .continuous)
                     .stroke(EmberTheme.hairline, lineWidth: 1)
             )
     }
@@ -58,7 +67,25 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 15)
             .background(EmberTheme.accentGradient)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .opacity(configuration.isPressed ? 0.8 : 1)
+            .clipShape(RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous))
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(EmberTheme.press, value: configuration.isPressed)
+    }
+}
+
+/// Plain-looking rows that still acknowledge a tap: a faint fill and a
+/// slight press-in, released quickly.
+struct EmberRowPressStyle: ButtonStyle {
+    var radius: CGFloat = EmberTheme.controlRadius
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(configuration.isPressed ? EmberTheme.pressedFill : Color.clear)
+            )
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(EmberTheme.press, value: configuration.isPressed)
     }
 }

@@ -129,11 +129,11 @@ private struct CurrentQueueRow: View {
                 .foregroundStyle(EmberTheme.pink)
         }
         .padding(10)
-        .background(EmberTheme.surfaceRaised)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(EmberTheme.surfaceRaised.overlay(EmberTheme.selectedFill))
+        .clipShape(RoundedRectangle(cornerRadius: EmberTheme.cardRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(EmberTheme.pink.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: EmberTheme.cardRadius, style: .continuous)
+                .stroke(EmberTheme.selectedStroke, lineWidth: 1)
         )
     }
 }
