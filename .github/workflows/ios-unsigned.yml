@@ -77,6 +77,7 @@ jobs:
             mobile/ios/EmberMobile/Models/Track.swift \
             mobile/ios/EmberMobile/Models/PlaybackQueue.swift \
             mobile/ios/EmberMobile/Services/AppModel.swift \
+            mobile/ios/EmberMobile/Services/APIClient.swift \
             mobile/ios/EmberMobile/Services/OfflineStore.swift \
             mobile/ios/tests/AppModelCheck.swift \
             -o /tmp/ember-model-check
