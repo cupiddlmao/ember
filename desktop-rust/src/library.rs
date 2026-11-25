@@ -314,9 +314,73 @@ pub struct LibraryPane {
     type_jump: TypeJump,
     playlist_tracks: Rc<Vec<Track>>,
     popup: Option<(gtk4::Window, gtk4::Label)>,
+    import_dialog: Option<Rc<ImportDialogState>>,
     cover_art: HashMap<String, Vec<String>>,
     tint_token: u64,
     tint_provider: gtk4::CssProvider,
+}
+
+struct ImportDialogState {
+    status: glib::WeakRef<gtk4::Label>,
+    save: glib::WeakRef<gtk4::Button>,
+    paths: Rc<RefCell<Option<(String, String)>>>,
+}
+
+/// One file dialog per import input. Picking a file records its full path
+/// for the bridge and shows the file name in the dialog.
+fn import_file_dialog(
+    title: &str,
+    patterns: &[&str],
+    mime: &str,
+) -> gtk4::FileDialog {
+    let filter = gtk4::FileFilter::new();
+    filter.set_name(Some(title));
+    filter.add_mime_type(mime);
+    for pattern in patterns {
+        filter.add_pattern(pattern);
+    }
+    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+    filters.append(&filter);
+    gtk4::FileDialog::builder()
+        .title(title)
+        .modal(true)
+        .filters(&filters)
+        .default_filter(&filter)
+        .build()
+}
+
+fn open_import_file(
+    dialog: &gtk4::FileDialog,
+    window: &gtk4::Window,
+    name_label: &gtk4::Label,
+    paths: &Rc<RefCell<Option<(String, String)>>>,
+    csv: bool,
+) {
+    let name_label = name_label.downgrade();
+    let paths = Rc::clone(paths);
+    dialog.open(Some(window), gtk4::gio::Cancellable::NONE, move |result| {
+        let Ok(file) = result else {
+            return;
+        };
+        let Some(path) = file.path() else {
+            return;
+        };
+        if let Some(label) = name_label.upgrade() {
+            label.set_text(&path.file_name().map_or_else(
+                || path.to_string_lossy().to_string(),
+                |name| name.to_string_lossy().to_string(),
+            ));
+        }
+        let picked = path.to_string_lossy().to_string();
+        let mut current = paths.borrow_mut();
+        let mut next = current.take().unwrap_or_default();
+        if csv {
+            next.0 = picked;
+        } else {
+            next.1 = picked;
+        }
+        *current = Some(next);
+    });
 }
 
 fn button(text: &str) -> gtk4::Button {
@@ -1084,10 +1148,14 @@ impl LibraryPane {
         sidebar_header.set_margin_bottom(5);
         let playlist_title = label("Playlists", "sidebar-section");
         playlist_title.set_hexpand(true);
+        let import_button = action_button("document-open-symbolic", "Import from CSV");
+        import_button.add_css_class("sidebar-add");
+        import_button.set_valign(gtk4::Align::Center);
         let add = action_button("list-add-symbolic", "New playlist");
         add.add_css_class("sidebar-add");
         add.set_valign(gtk4::Align::Center);
         sidebar_header.append(&playlist_title);
+        sidebar_header.append(&import_button);
         sidebar_header.append(&add);
         sidebar.append(&sidebar_header);
         let sidebar_scroll = gtk4::ScrolledWindow::new();
@@ -1148,6 +1216,7 @@ impl LibraryPane {
             type_jump: TypeJump::default(),
             playlist_tracks: Rc::new(Vec::new()),
             popup: None,
+            import_dialog: None,
             cover_art: HashMap::new(),
             tint_token: 0,
             tint_provider,
@@ -1206,6 +1275,12 @@ impl LibraryPane {
         add.connect_clicked(move |_| {
             if let Some(p) = weak.upgrade() {
                 Self::open_create(&p);
+            }
+        });
+        let weak = Rc::downgrade(&pane);
+        import_button.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                Self::open_import(&p);
             }
         });
         let weak = Rc::downgrade(&pane);
@@ -2222,6 +2297,258 @@ impl LibraryPane {
         drop(p);
         window.present();
     }
+
+    fn open_import(pane: &Rc<RefCell<Self>>) -> bool {
+        let mut p = pane.borrow_mut();
+        if p.busy {
+            return false;
+        }
+        if let Some((window, _)) = &p.popup {
+            window.present();
+            return true;
+        }
+        let window = dialog_window(&p.parent, "Import from CSV", 480);
+        close_on_escape(&window);
+        let content = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+        content.set_margin_top(22);
+        content.set_margin_bottom(18);
+        content.set_margin_start(22);
+        content.set_margin_end(22);
+        content.append(&label("Import from CSV", "dialog-title"));
+        let intro = label(
+            "Pick the Spotify CSV and its approved match report from the transfer step.",
+            "dialog-copy",
+        );
+        intro.set_wrap(true);
+        content.append(&intro);
+
+        let paths: Rc<RefCell<Option<(String, String)>>> = Rc::new(RefCell::new(None));
+        let csv_name = label("", "dialog-copy");
+        let report_name = label("", "dialog-copy");
+        let csv_button = button("Choose CSV…");
+        let report_button = button("Choose report…");
+        let csv_dialog = import_file_dialog("Choose CSV", &["*.csv"], "text/csv");
+        let report_dialog = import_file_dialog("Choose match report", &["*.json"], "application/json");
+        let csv_dialog_ref = Rc::new(csv_dialog);
+        let report_dialog_ref = Rc::new(report_dialog);
+        let csv_window = window.clone();
+        let csv_label = csv_name.clone();
+        let csv_paths = Rc::clone(&paths);
+        csv_button.connect_clicked(move |_| {
+            open_import_file(&csv_dialog_ref, &csv_window, &csv_label, &csv_paths, true);
+        });
+        let report_window = window.clone();
+        let report_label = report_name.clone();
+        let report_paths = Rc::clone(&paths);
+        let report_dialog_ref2 = Rc::clone(&report_dialog_ref);
+        report_button.connect_clicked(move |_| {
+            open_import_file(&report_dialog_ref2, &report_window, &report_label, &report_paths, false);
+        });
+        for (row_button, row_name) in [(&csv_button, &csv_name), (&report_button, &report_name)] {
+            let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+            row.append(row_button);
+            let name_label = row_name.clone();
+            name_label.set_hexpand(true);
+            name_label.set_xalign(0.0);
+            row.append(&name_label);
+            content.append(&row);
+        }
+
+        let entry = gtk4::Entry::new();
+        entry.set_placeholder_text(Some("Playlist title"));
+        entry.set_max_length(120);
+        entry.add_css_class("library-entry");
+        content.append(&entry);
+
+        let modes = gtk4::StringList::new(&[
+            "Import as a new playlist",
+            "Add missing songs to an existing playlist",
+            "Repair album names on an existing import",
+        ]);
+        let mode_picker = gtk4::DropDown::new(Some(modes), None::<gtk4::Expression>);
+        mode_picker.add_css_class("library-entry");
+        content.append(&mode_picker);
+
+        let status = label("", "dialog-copy");
+        status.set_wrap(true);
+        content.append(&status);
+
+        let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        footer.set_halign(gtk4::Align::End);
+        let weak = Rc::downgrade(pane);
+        let cancel = close_button("Cancel", &window, move || {
+            if let Some(p) = weak.upgrade()
+                && let Ok(mut p) = p.try_borrow_mut()
+            {
+                p.popup = None;
+                p.import_dialog = None;
+            }
+        });
+        cancel.add_css_class("library-secondary");
+        let preview = button("Preview");
+        preview.add_css_class("accent");
+        preview.add_css_class("library-play");
+        preview.set_sensitive(false);
+        let save = button("Save to Library");
+        save.add_css_class("accent");
+        save.add_css_class("library-play");
+        save.set_visible(false);
+        footer.append(&cancel);
+        footer.append(&preview);
+        footer.append(&save);
+        content.append(&footer);
+        window.set_child(Some(&content));
+
+        let gate = {
+            let paths = Rc::clone(&paths);
+            let entry = entry.clone();
+            let preview = preview.downgrade();
+            move || {
+                let Some(preview) = preview.upgrade() else {
+                    return;
+                };
+                let ready = paths.borrow().is_some() && valid_name(&entry.text());
+                preview.set_sensitive(ready);
+            }
+        };
+        let entry_changed = entry.clone();
+        let gate_changed = gate.clone();
+        entry_changed.connect_changed(move |_| gate_changed());
+        let gate_picker = gate.clone();
+        mode_picker.connect_selected_notify(move |_| gate_picker());
+
+        let state = Rc::new(ImportDialogState {
+            status: status.downgrade(),
+            save: save.downgrade(),
+            paths: Rc::clone(&paths),
+        });
+
+        let weak = Rc::downgrade(pane);
+        let dialog = Rc::clone(&state);
+        let entry_ref = entry.clone();
+        let picker_ref = mode_picker.clone();
+        preview.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                Self::submit_import(&p, &dialog, &entry_ref, &picker_ref, false);
+            }
+        });
+        let weak = Rc::downgrade(pane);
+        let dialog = Rc::clone(&state);
+        let entry_ref = entry.clone();
+        let picker_ref = mode_picker.clone();
+        save.connect_clicked(move |_| {
+            if let Some(p) = weak.upgrade() {
+                Self::submit_import(&p, &dialog, &entry_ref, &picker_ref, true);
+            }
+        });
+
+        let weak = Rc::downgrade(pane);
+        window.connect_close_request(move |_| {
+            if let Some(p) = weak.upgrade()
+                && let Ok(mut p) = p.try_borrow_mut()
+            {
+                p.popup = None;
+                p.import_dialog = None;
+            }
+            glib::Propagation::Proceed
+        });
+        p.popup = Some((window.clone(), status));
+        p.import_dialog = Some(state);
+        drop(p);
+        window.present();
+        true
+    }
+
+    fn submit_import(
+        pane: &Rc<RefCell<Self>>,
+        dialog: &Rc<ImportDialogState>,
+        entry: &gtk4::Entry,
+        picker: &gtk4::DropDown,
+        apply: bool,
+    ) {
+        let title = entry.text().trim().to_string();
+        if !valid_name(&title) {
+            return;
+        }
+        let mode = match picker.selected() {
+            0 => "import",
+            1 => "add",
+            2 => "repair",
+            _ => return,
+        };
+        let Some((source, report)) = dialog.paths.borrow().clone() else {
+            return;
+        };
+        Self::request(
+            pane,
+            json!({
+                "operation": "csv_import",
+                "source": source,
+                "report": report,
+                "title": title,
+                "mode": mode,
+                "apply": apply,
+            }),
+        );
+    }
+
+    /// Routes one CSV import result back into the import dialog. A preview
+    /// (no playlist) shows the summary and reveals Save; an applied import
+    /// closes the dialog and refreshes the library.
+    pub fn import_result(
+        pane: &Rc<RefCell<Self>>,
+        result: Result<(Vec<String>, Option<Value>), String>,
+    ) {
+        let dialog = pane.borrow().import_dialog.clone();
+        // (applied, preview-succeeded, user-facing message)
+        let (applied, previewed, message) = match result {
+            Ok((lines, playlist)) => {
+                let summary = if lines.is_empty() {
+                    "No approved matches to import.".to_owned()
+                } else {
+                    lines.join("\n")
+                };
+                if playlist.is_some() {
+                    (
+                        true,
+                        false,
+                        "Saved to the shared library. Refreshing…".to_owned(),
+                    )
+                } else {
+                    (false, true, summary)
+                }
+            }
+            Err(error) => (false, false, error),
+        };
+        {
+            let mut p = pane.borrow_mut();
+            p.busy = false;
+            if let Some((window, _)) = &p.popup {
+                window.set_sensitive(true);
+            }
+            let shown = dialog.is_none();
+            if let Some(dialog) = &dialog
+                && let Some(status) = dialog.status.upgrade()
+            {
+                status.set_text(&message);
+            }
+            if let Some(dialog) = &dialog
+                && let Some(save) = dialog.save.upgrade()
+            {
+                save.set_visible(previewed);
+            }
+            if shown && !previewed {
+                p.status.set_text(&message);
+            }
+        }
+        if applied {
+            if let Some((window, _)) = pane.borrow_mut().popup.take() {
+                window.close();
+            }
+            pane.borrow_mut().import_dialog = None;
+            Self::request(pane, json!({"operation":"refresh"}));
+        }
+    }
 }
 
 pub fn data_root() -> std::path::PathBuf {
@@ -2521,6 +2848,92 @@ mod tests {
             panic!("expected refresh");
         };
         assert_eq!(command["operation"], "refresh");
+        parent.close();
+    }
+
+    #[test]
+    #[ignore = "requires a native GTK display; run with --ignored --test-threads=1"]
+    fn import_dialog_previews_then_closes_on_save() {
+        gtk4::init().expect("GTK display");
+        let application = gtk4::Application::new(None::<&str>, Default::default());
+        application
+            .register(None::<&gtk4::gio::Cancellable>)
+            .unwrap();
+        let parent = gtk4::ApplicationWindow::new(&application);
+        parent.set_default_size(1180, 760);
+        let (tx, rx) = mpsc::channel();
+        let pane = LibraryPane::new(
+            &parent,
+            tx,
+            Rc::new(RefCell::new(ArtworkLoader::default())),
+            &gtk4::Box::new(gtk4::Orientation::Vertical, 0),
+            &gtk4::Box::new(gtk4::Orientation::Vertical, 0),
+        );
+        LibraryPane::apply(&pane, Ok(state()));
+        parent.present();
+        fn settle() {
+            let until = std::time::Instant::now() + std::time::Duration::from_millis(120);
+            while std::time::Instant::now() < until {
+                while glib::MainContext::default().pending() {
+                    glib::MainContext::default().iteration(false);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        settle();
+        fn find_button(widget: &gtk4::Widget, text: &str) -> Option<gtk4::Button> {
+            if let Some(button) = widget.downcast_ref::<gtk4::Button>()
+                && button.label().as_deref() == Some(text)
+            {
+                return Some(button.clone());
+            }
+            let mut child = widget.first_child();
+            while let Some(current) = child {
+                if let Some(found) = find_button(&current, text) {
+                    return Some(found);
+                }
+                child = current.next_sibling();
+            }
+            None
+        }
+
+        assert!(LibraryPane::open_import(&pane));
+        settle();
+        let (window, status) = pane.borrow().popup.clone().unwrap();
+        assert_eq!(window.title().as_deref(), Some("Import from CSV"));
+        let preview = find_button(window.upcast_ref(), "Preview").expect("preview button");
+        assert!(!preview.is_sensitive(), "preview must wait for files and title");
+        assert!(rx.try_recv().is_err(), "opening the import dialog must not refresh");
+
+        LibraryPane::import_result(
+            &pane,
+            Ok((
+                vec!["GG: 2 approved occurrences.".to_owned()],
+                None,
+            )),
+        );
+        settle();
+        assert!(status.text().contains("GG: 2 approved occurrences."));
+        let save = find_button(window.upcast_ref(), "Save to Library").expect("save button");
+        assert!(save.is_visible(), "a preview must reveal Save");
+        assert!(!pane.borrow().busy, "a preview result must clear busy");
+
+        LibraryPane::import_result(
+            &pane,
+            Ok((
+                vec!["GG: 2 approved occurrences.".to_owned()],
+                Some(json!({"id": "pid", "revision": 1})),
+            )),
+        );
+        settle();
+        assert!(pane.borrow().popup.is_none(), "a saved import must close its dialog");
+        assert!(pane.borrow().import_dialog.is_none());
+        let Action::Request(command) = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap()
+        else {
+            panic!("expected the post-import refresh");
+        };
+        assert_eq!(command["operation"], "refresh");
+        window.close();
         parent.close();
     }
 

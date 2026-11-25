@@ -19,6 +19,9 @@ the desktop migration:
 - automatic LRCLIB lyrics with synchronized-line following and seek
 - desktop media controls through `org.mpris.MediaPlayer2`, covering play/pause,
   next/previous, seek, track metadata and playback position
+- CSV import: Library ▸ Import from CSV runs an approved Spotify CSV match
+  report through `import_ember_playlist.py` — preview first, then save — with
+  the script's own idempotent retries and saved receipts intact
 
 This is the Ember desktop app. It uses the checkout's Python music core through
 a bounded bridge for public YouTube Music search and resolution, and the Ember
@@ -196,7 +199,8 @@ working directory. A single bounded JSON request is written to stdin and one
 bounded response is read from stdout. The Rust reader caps output at 10 MiB to accommodate shared playlists;
 `bridge.py` caps music JSON at 512 KiB and library JSON at 10 MiB. Searches are limited to 200
 characters and 20 tracks. Interactive requests time out after 35 seconds;
-background cache jobs have a separate 180-second deadline. Stderr is
+background cache jobs have a separate 180-second deadline; CSV imports have a
+300-second deadline. Stderr is
 discarded so raw subprocess diagnostics and credentials cannot reach the UI or
 logs. Errors are structured and sanitized before display.
 

@@ -1,12 +1,18 @@
 import io
 import json
+import sys
+import types
 import unittest
 
 from bridge import (
     MAX_LYRIC_LINES,
     MAX_LYRIC_TEXT_CHARS,
     MAX_OUTPUT_BYTES,
+    DependencyError,
+    RequestError,
+    csv_import_action,
     emit,
+    fail,
     lyrics_for,
     normalize_lyrics_payload,
     request_track,
@@ -160,6 +166,136 @@ class ArtworkTests(unittest.TestCase):
         bad = dict(item)
         bad["album"] = {"name": "Awake", "images": [{"url": "http://i.ytimg.com/fake.jpg"}]}
         self.assertNotIn("artwork_url", slim_track(bad))
+
+
+class CsvImportTests(unittest.TestCase):
+    def setUp(self):
+        self.out = io.StringIO()
+        # Validation must not depend on the real import module being importable.
+        self.module_token = object()
+        self.previous_module = sys.modules.get("import_ember_playlist")
+        self.fake = types.ModuleType("import_ember_playlist")
+        sys.modules["import_ember_playlist"] = self.fake
+
+    def tearDown(self):
+        if self.previous_module is not None:
+            sys.modules["import_ember_playlist"] = self.previous_module
+        else:
+            sys.modules.pop("import_ember_playlist", None)
+
+    def install_calls(self):
+        calls = []
+
+        def make(name):
+            def action(source, report, title, apply):
+                calls.append((name, str(source), str(report), title, apply))
+                print(f"{title}: 2 approved occurrences.")
+                return {"id": "pid", "revision": 1} if apply else None
+
+            return action
+
+        self.fake.run = make("run")
+        self.fake.add_new = make("add_new")
+        self.fake.repair_albums = make("repair_albums")
+        return calls
+
+    def envelope(self):
+        return json.loads(self.out.getvalue())
+
+    def run_action(self, command):
+        # Mirror the bridge entry point: request-shape errors become envelopes.
+        self.out = io.StringIO()
+        try:
+            csv_import_action(command, self.out)
+        except RequestError as error:
+            fail(self.out, "input", str(error))
+        except DependencyError as error:
+            fail(self.out, "dependencies", str(error))
+        return self.envelope()
+
+    def test_relative_and_missing_paths_are_refused(self):
+        for value in (None, 5, "", "relative.csv", "/nonexistent/ember-report.json"):
+            with self.subTest(value=value):
+                envelope = self.run_action(
+                    {"source": value, "report": value, "title": "T", "mode": "import"}
+                )
+                self.assertFalse(envelope["ok"])
+                self.assertIn(envelope["error"]["code"], {"input", "invalid_input"})
+
+    def test_bad_title_and_mode_are_refused(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile() as handle:
+            path = handle.name
+            for title in ("", "x" * 121, "bad\x01title"):
+                envelope = self.run_action(
+                    {"source": path, "report": path, "title": title, "mode": "import"}
+                )
+                self.assertFalse(envelope["ok"])
+            for mode in ("upload", None, 3):
+                envelope = self.run_action(
+                    {"source": path, "report": path, "title": "T", "mode": mode}
+                )
+                self.assertFalse(envelope["ok"])
+                self.assertEqual(envelope["error"]["code"], "input")
+
+    def test_action_routes_by_mode_and_captures_messages(self):
+        import tempfile
+
+        calls = self.install_calls()
+        with tempfile.NamedTemporaryFile() as handle:
+            path = handle.name
+            envelope = self.run_action(
+                {"source": path, "report": path, "title": "GG", "mode": "import"}
+            )
+            self.assertTrue(envelope["ok"])
+            self.assertEqual(envelope["data"]["messages"], ["GG: 2 approved occurrences."])
+            self.assertIsNone(envelope["data"]["playlist"])
+            self.assertEqual(calls[-1], ("run", path, path, "GG", False))
+
+            envelope = self.run_action(
+                {
+                    "source": path,
+                    "report": path,
+                    "title": "GG",
+                    "mode": "add",
+                    "apply": True,
+                }
+            )
+            self.assertTrue(envelope["ok"])
+            self.assertEqual(envelope["data"]["playlist"], {"id": "pid", "revision": 1})
+            self.assertEqual(calls[-1][0], "add_new")
+            self.assertTrue(calls[-1][4])
+
+            envelope = self.run_action(
+                {
+                    "source": path,
+                    "report": path,
+                    "title": "GG",
+                    "mode": "repair",
+                    "apply": True,
+                }
+            )
+            self.assertTrue(envelope["ok"])
+            self.assertEqual(calls[-1][0], "repair_albums")
+
+    def test_value_error_from_script_reaches_the_user_sanitized(self):
+        import tempfile
+
+        def run(source, report, title, apply):
+            raise ValueError("A playlist with this name already exists. https://leak.example")
+
+        self.fake.run = run
+        self.fake.add_new = lambda *a: None
+        self.fake.repair_albums = lambda *a: None
+        with tempfile.NamedTemporaryFile() as handle:
+            path = handle.name
+            envelope = self.run_action(
+                {"source": path, "report": path, "title": "GG", "mode": "import"}
+            )
+        self.assertFalse(envelope["ok"])
+        self.assertEqual(envelope["error"]["code"], "invalid_input")
+        self.assertNotIn("https://", envelope["error"]["message"])
 
 
 if __name__ == "__main__":

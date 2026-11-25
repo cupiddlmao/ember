@@ -2,7 +2,7 @@
 
 Status: backend SQLite/API is implemented in `mobile/backend/library_store.py`, documented in `mobile/backend/LIBRARY_API.md` and deployed. SwiftUI integration and private in-session offline read cache are implemented in source; Rust integration is also implemented; the backend is deployed and live at 0.3.0, while macOS build/device checks and native Rust interaction checks remain pending. The sections below describe the overall plan.
 
-The desktop UI revision and this shared-library/radio/lyrics line are now merged on one branch, so the sequencing below is historical: the remaining work is verification and deployment, not a further desktop pass.
+The desktop UI revision and this shared-library/radio/lyrics line are now merged on one branch, so the sequencing below is historical: the remaining work is verification and deployment, not a further desktop pass. The CSV import UI shipped in 0.4.0's follow-up: **Library ▸ Import from CSV** runs `import_ember_playlist.py` through the bridge (preview, then save), and release installation is covered by the 0.4.0 tag.
 
 ## Recommendation
 Keep the existing Python laptop backend and add SQLite using Python's standard library. The backend becomes the source of truth for Ember-owned playlists. Both Rust desktop and iPhone use authenticated HTTPS over the existing Tailscale /ember address. No YouTube account, playlist upload or provider playlist ownership is needed.
@@ -35,4 +35,4 @@ Account-backed/private playlist import, collaborative/multi-user sharing and pro
 Backend schema/API first, then Rust client, then iPhone integration/redesign.
 Test persistent restart, duplicate tracks, reorder/remove integrity, revision conflicts across two clients, retry idempotency, unauthorized mutations and offline read-only behavior.
 Deployment must preserve live bind127.0.0.1:18080, Compose project ember-mobile, API token, existing audio volume and /ember proxy.
-Backend schema/API now exist. SwiftUI integration is implemented in source but not yet built/device-tested. Rust sync is implemented and running against the deployed backend. CSV import UI and release installation remain pending; the backend itself is deployed.
+Backend schema/API now exist. SwiftUI integration is implemented in source but not yet built/device-tested. Rust sync is implemented and running against the deployed backend. CSV import UI shipped (Library ▸ Import from CSV); the backend itself is deployed.
