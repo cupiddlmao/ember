@@ -70,9 +70,9 @@ struct SearchView: View {
         .padding(.horizontal, 14)
         .frame(height: 46)
         .background(EmberTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous)
                 .stroke(EmberTheme.hairline, lineWidth: 1)
         )
         .padding(.horizontal, 20)
@@ -99,7 +99,8 @@ struct SearchView: View {
                     ForEach(model.results) { track in
                         TrackRow(
                             track: track,
-                            isPreparing: model.preparingTrackID == track.id
+                            isPreparing: model.preparingTrackID == track.id,
+                            isCurrent: model.currentQueueEntry?.track.id == track.id
                         ) {
                             model.play(track)
                         }
@@ -152,6 +153,7 @@ struct SearchView: View {
 private struct TrackRow: View {
     let track: Track
     let isPreparing: Bool
+    var isCurrent: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -161,7 +163,7 @@ private struct TrackRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(track.title)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(isCurrent ? EmberTheme.pinkSoft : .white)
                         .lineLimit(1)
                     Text(track.artist)
                         .font(.system(size: 13))
@@ -181,8 +183,13 @@ private struct TrackRow: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: EmberTheme.controlRadius, style: .continuous)
+                    .fill(isCurrent ? EmberTheme.selectedFill : Color.clear)
+            )
             .contentShape(Rectangle())
+            .animation(EmberTheme.stateChange, value: isCurrent)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(EmberRowPressStyle())
     }
 }
