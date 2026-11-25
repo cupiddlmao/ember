@@ -11,7 +11,7 @@ ARG EMBER_GIT_COMMIT=unknown
 LABEL org.opencontainers.image.revision=$EMBER_GIT_COMMIT
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
