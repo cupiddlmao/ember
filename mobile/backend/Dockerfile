@@ -1,4 +1,6 @@
-FROM node:22-bookworm-slim AS node
+# The yt-dlp EJS challenge provider needs a current Node; Node 22 fails the
+# n-challenge against the live player (verified: Node 26 solves it).
+FROM node:26-bookworm-slim AS node
 
 FROM python:3.12-slim-bookworm
 
