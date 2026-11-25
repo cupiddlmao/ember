@@ -140,14 +140,20 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/v1/health   # 40
 The workflow is manual (`workflow_dispatch`), runs on `macos-26`, and needs no
 Apple account.
 
+Gate 5 dispatches on `main` because the tag does not exist yet, so this IPA is
+a rehearsal: it proves the workflow runs and its assertions hold. The artifact
+that belongs to the release is the one gate 7 builds by dispatching the same
+workflow on the tag. If `main` moves between the two runs, only the tagged
+build counts.
+
 ```bash
-# Actions → iOS unsigned IPA → Run workflow → branch: main
+# Actions → iOS unsigned IPA → Run workflow → branch: main   (rehearsal)
 ```
 
 - [ ] All steps succeed. The only expected skip is
       `Upload build log on failure`.
-- [ ] The `Package unsigned IPA` step printed a SHA-256 — record it here:
-      `____________________`.
+- [ ] The `Package unsigned IPA` step printed a SHA-256 — note it here to
+      compare against gate 7's tagged build: `____________________`.
 - [ ] Artifact `EmberMobile-unsigned-ipa` downloaded (about 1.06 MB).
 - [ ] `Git commit:` in the log equals `git rev-parse --short=7 HEAD`.
 
