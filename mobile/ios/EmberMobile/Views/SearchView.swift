@@ -3,6 +3,7 @@ import SwiftUI
 struct SearchView: View {
     @State private var addingTrack: Track?
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var library: SharedLibraryModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,7 +11,11 @@ struct SearchView: View {
             searchField
             content
         }
-        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
+        .sheet(item: $addingTrack) { track in
+            AddToPlaylistView(track: track)
+                .environmentObject(library)
+                .environmentObject(model)
+        }
         .onChange(of: model.searchText) { _, _ in
             model.scheduleSearch()
         }

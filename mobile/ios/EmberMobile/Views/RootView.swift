@@ -31,9 +31,13 @@ struct RootView: View {
             case .nowPlaying:
                 NowPlayingView(player: model.player)
                     .environmentObject(model)
+                    .environmentObject(library)
+                    .environmentObject(model.offline)
             case .settings:
                 SettingsView()
                     .environmentObject(model)
+                    .environmentObject(library)
+                    .environmentObject(model.offline)
             }
         }
         .alert(

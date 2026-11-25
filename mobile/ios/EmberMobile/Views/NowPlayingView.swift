@@ -3,6 +3,7 @@ import SwiftUI
 struct NowPlayingView: View {
     @ObservedObject var player: PlayerController
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var library: SharedLibraryModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var isScrubbing = false
@@ -43,7 +44,11 @@ struct NowPlayingView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
-        .sheet(item: $addingTrack) { track in AddToPlaylistView(track: track) }
+        .sheet(item: $addingTrack) { track in
+            AddToPlaylistView(track: track)
+                .environmentObject(library)
+                .environmentObject(model)
+        }
         .sheet(isPresented: $showingQueue) {
             QueueView()
                 .environmentObject(model)

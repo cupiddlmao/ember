@@ -60,6 +60,7 @@ struct LibraryView: View {
         .sheet(isPresented: $showingAdd) {
             AddPlaylistView()
                 .environmentObject(model)
+                .environmentObject(library)
         }
         .confirmationDialog(
             "Remove this playlist?",
