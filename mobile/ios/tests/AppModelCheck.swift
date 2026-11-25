@@ -19,15 +19,27 @@ struct APIClient {
     func downloadAudio(for track: Track, protectingTrackIDs: Set<String>) async throws -> URL {
         try await withCheckedThrowingContinuation { Self.pending[track.id] = $0 }
     }
+    func fetchAudio(for track: Track, into directory: URL) async throws -> URL {
+        try await withCheckedThrowingContinuation { Self.pending[track.id] = $0 }
+    }
 }
 
 enum APIError: LocalizedError {
     case invalidConfiguration(String)
     case unauthorized
+    case server(Int, String?, String?)
+    case transport(String)
+    case invalidResponse
+    case fileTooLarge
     var errorDescription: String? {
         switch self {
         case .invalidConfiguration(let message): return message
         case .unauthorized: return "The server rejected the access key."
+        case .server(let status, let message, _):
+            return message?.isEmpty == false ? message : "The server returned HTTP \(status)."
+        case .transport(let message): return message
+        case .invalidResponse: return "The server returned an unexpected response."
+        case .fileTooLarge: return "The downloaded audio is larger than expected."
         }
     }
 }
