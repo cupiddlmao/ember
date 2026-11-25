@@ -132,7 +132,7 @@ unavailable. To unlock them, give the server a cookies file:
    as a Netscape `cookies.txt` (any reputable "get cookies.txt" extension).
 2. Copy it to the VM next to `docker-compose.yml` as `cookies.txt`, mode 0600,
    owned by the Compose user.
-3. Uncomment the `./cookies.txt:/var/lib/ember/cookies.txt:ro` volume line and
+3. Uncomment the `./cookies.txt:/var/lib/ember/cookies.txt` volume line (yt-dlp refreshes the jar in place, so it must be writable) and
    set `EMBER_YOUTUBE_COOKIES=/var/lib/ember/cookies.txt` in
    `mobile/backend/.env`, then `docker compose -p ember-mobile up -d`.
 

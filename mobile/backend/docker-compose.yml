@@ -25,7 +25,7 @@ services:
       - audio-cache:/var/lib/ember/cache
       - playlist-library:/var/lib/ember/library
       # Uncomment and place the file next to docker-compose.yml to enable:
-      # - ./cookies.txt:/var/lib/ember/cookies.txt:ro
+      # - ./cookies.txt:/var/lib/ember/cookies.txt
     healthcheck:
       test:
         - CMD
