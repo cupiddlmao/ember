@@ -249,6 +249,7 @@ fn activate(application: &gtk4::Application) {
         main_stack,
         library: library.clone(),
         library_seq: 0,
+        csv_import_seq: 0,
         nav_library: sidebar.library_button,
         nav_home: sidebar.home_button,
         nav_search: sidebar.search_button_nav,
@@ -1576,6 +1577,7 @@ struct AppUi {
     lastfm_disconnect: gtk4::Button,
     library: Rc<RefCell<crate::library::LibraryPane>>,
     library_seq: u64,
+    csv_import_seq: u64,
     nav_library: gtk4::Button,
     window: gtk4::ApplicationWindow,
     search_entry: gtk4::Entry,
@@ -1755,6 +1757,16 @@ impl AppUi {
                     _ => Err("Shared library request failed.".to_owned()),
                 };
                 crate::library::LibraryPane::apply(&self.library, result);
+            }
+            JobKind::CsvImport => {
+                let result = match job.result {
+                    Ok(BridgePayload::CsvImport { messages, playlist }) => {
+                        Ok((messages, playlist))
+                    }
+                    Err(error) => Err(error.message().to_owned()),
+                    Ok(_) => Err("Import did not return a result.".to_owned()),
+                };
+                crate::library::LibraryPane::import_result(&self.library, result);
             }
             JobKind::Search if job.seq == self.search_seq => match job.result {
                 Ok(BridgePayload::Search(tracks)) => self.show_search_results(tracks),
@@ -3987,16 +3999,30 @@ fn install_callbacks(
             let mut ui = app.borrow_mut();
             match action {
                 crate::library::Action::Request(command) => {
-                    match ui
-                        .bridge
-                        .as_ref()
-                        .map(|bridge| bridge.submit_library(command))
-                    {
-                        Some(Ok(seq)) => ui.library_seq = seq,
-                        _ => crate::library::LibraryPane::apply(
-                            &ui.library,
-                            Err("Music bridge unavailable.".into()),
-                        ),
+                    if command.get("operation").and_then(serde_json::Value::as_str) == Some("csv_import") {
+                        match ui
+                            .bridge
+                            .as_ref()
+                            .map(|bridge| bridge.submit_csv_import(command))
+                        {
+                            Some(Ok(seq)) => ui.csv_import_seq = seq,
+                            _ => crate::library::LibraryPane::import_result(
+                                &ui.library,
+                                Err("Music bridge unavailable.".into()),
+                            ),
+                        }
+                    } else {
+                        match ui
+                            .bridge
+                            .as_ref()
+                            .map(|bridge| bridge.submit_library(command))
+                        {
+                            Some(Ok(seq)) => ui.library_seq = seq,
+                            _ => crate::library::LibraryPane::apply(
+                                &ui.library,
+                                Err("Music bridge unavailable.".into()),
+                            ),
+                        }
                     }
                 }
                 crate::library::Action::OpenPlaylist(id) => ui.open_playlist(&id),

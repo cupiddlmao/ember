@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import json
 import os
 import fcntl
@@ -421,13 +422,91 @@ def cache_action(action, track=None):
             store.download(track)
 
 
+CSV_IMPORT_MODES = {"import", "add", "repair"}
+
+
+def csv_file(value: object, label: str) -> Path:
+    """Validate a user-picked input file without reading or moving it."""
+    if not isinstance(value, str) or not value or "\x00" in value or len(value) > 4096:
+        raise RequestError(f"Choose a {label} file.")
+    path = Path(value)
+    if not path.is_absolute():
+        raise RequestError(f"Choose a {label} file with an absolute path.")
+    try:
+        if not path.is_file() or not os.access(path, os.R_OK):
+            raise RequestError(f"That {label} file cannot be read.")
+    except OSError:
+        raise RequestError(f"That {label} file cannot be read.") from None
+    return path
+
+
+def csv_import_action(command: object, real_stdout) -> None:
+    """Run one approved-CSV import step through the checkout's existing script.
+
+    The script owns idempotent retries and saved receipts; the bridge only
+    validates inputs, captures its user-facing messages and keeps stdout as
+    protocol. A preview (apply=False) never writes; an apply replays the exact
+    saved payload on retry, exactly as the command line does.
+    """
+    from library_client import Rejected
+
+    if not isinstance(command, dict):
+        raise RequestError("Invalid import command.")
+    source = csv_file(command.get("source"), "CSV")
+    report = csv_file(command.get("report"), "match report")
+    title = str(command.get("title") or "").strip()
+    if not 1 <= len(title) <= 120 or any(ord(ch) < 32 for ch in title):
+        raise RequestError("Enter a playlist title of 1–120 characters.")
+    mode = command.get("mode")
+    if mode not in CSV_IMPORT_MODES:
+        raise RequestError("Choose an import mode.")
+    apply = command.get("apply") is True
+    try:
+        import import_ember_playlist as importer
+    except ImportError:
+        raise DependencyError(
+            "The checkout import module is unavailable. Check the checkout files."
+        ) from None
+    action = {
+        "import": importer.run,
+        "add": importer.add_new,
+        "repair": importer.repair_albums,
+    }[mode]
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            detail = action(source, report, title, apply)
+    except Rejected:
+        fail(
+            real_stdout,
+            "rejected",
+            "Ember rejected the import. Its saved state is retained; retry the same import unchanged.",
+        )
+        return
+    except ValueError as error:
+        fail(real_stdout, "invalid_input", sanitize(str(error) or "Import validation failed."))
+        return
+    except OSError:
+        fail(
+            real_stdout,
+            "unavailable",
+            "The import could not be saved. Check Ember Settings and the connection, then retry the same import.",
+        )
+        return
+    messages = [line for line in captured.getvalue().splitlines() if line]
+    emit(real_stdout, {"ok": True, "data": {"messages": messages, "playlist": detail}})
+
+
 def run(real_stdout) -> None:
     request = read_request()
     action = request.get("action")
-    if action not in {"search", "resolve", "lyrics", "cache", "clear_cache", "library", "lastfm"}:
+    if action not in {"search", "resolve", "lyrics", "cache", "clear_cache", "library", "lastfm", "csv_import"}:
         raise RequestError("Unknown music bridge action.")
 
     sys.path.insert(0, str(ROOT))
+    if action == "csv_import":
+        csv_import_action(request.get("command"), real_stdout)
+        return
     if action == "lastfm":
         from library_client import LastFMError, lastfm
         command = request.get("command")

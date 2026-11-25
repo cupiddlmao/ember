@@ -81,6 +81,7 @@ pub enum JobKind {
     Cache,
     Library,
     LastFm,
+    CsvImport,
 }
 
 #[derive(Debug)]
@@ -91,6 +92,10 @@ pub enum BridgePayload {
     Cache { cleared: bool },
     Library(crate::library::LibraryState),
     LastFm(Value),
+    CsvImport {
+        messages: Vec<String>,
+        playlist: Option<Value>,
+    },
 }
 
 #[derive(Debug)]
@@ -219,6 +224,9 @@ enum Request<'a> {
     },
     #[serde(rename = "lastfm")]
     LastFm {
+        command: &'a Value,
+    },
+    CsvImport {
         command: &'a Value,
     },
 }
@@ -562,6 +570,7 @@ enum QueuedRequest {
     ClearCache,
     Library(Value),
     LastFm(Value),
+    CsvImport(Value),
 }
 
 impl QueuedRequest {
@@ -574,6 +583,7 @@ impl QueuedRequest {
             Self::ClearCache => encode_request(&Request::ClearCache),
             Self::Library(command) => encode_request(&Request::Library { command }),
             Self::LastFm(command) => encode_request(&Request::LastFm { command }),
+            Self::CsvImport(command) => encode_request(&Request::CsvImport { command }),
         }
     }
 }
@@ -642,6 +652,7 @@ impl Worker {
             JobKind::Cache => "ember-bridge-cache",
             JobKind::Library => "ember-bridge-library",
             JobKind::LastFm => "ember-bridge-lastfm",
+            JobKind::CsvImport => "ember-bridge-csv-import",
         };
         thread::Builder::new()
             .name(name.to_owned())
@@ -710,6 +721,9 @@ fn worker_loop(
                     &shutdown,
                     if kind == JobKind::Cache {
                         Duration::from_secs(180)
+                    } else if kind == JobKind::CsvImport {
+                        // A large import uploads and verifies against the tailnet.
+                        Duration::from_secs(300)
                     } else {
                         BRIDGE_TIMEOUT
                     },
@@ -754,6 +768,27 @@ fn worker_loop(
                         Err(decode_error(envelope.error))
                     }
                 }),
+                JobKind::CsvImport => parse_envelope(&bytes).and_then(|envelope| {
+                    if !envelope.ok {
+                        return Err(decode_error(envelope.error));
+                    }
+                    let data = envelope.data.ok_or_else(BridgeError::invalid_response)?;
+                    let messages = data
+                        .get("messages")
+                        .and_then(Value::as_array)
+                        .map(|lines| {
+                            lines
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    Ok(BridgePayload::CsvImport {
+                        messages,
+                        playlist: data.get("playlist").cloned(),
+                    })
+                }),
             });
 
         let _ = tx.send(JobResult {
@@ -771,6 +806,7 @@ pub struct BridgeService {
     cache: WorkerControl,
     library: WorkerControl,
     lastfm: WorkerControl,
+    csv_import: WorkerControl,
     shutdown: Arc<AtomicBool>,
     next_sequence: AtomicU64,
 }
@@ -842,7 +878,12 @@ impl BridgeService {
                 return Err(error);
             }
         };
-        let lastfm = match Worker::spawn(config, JobKind::LastFm, tx, Arc::clone(&shutdown)) {
+        let lastfm = match Worker::spawn(
+            config.clone(),
+            JobKind::LastFm,
+            tx.clone(),
+            Arc::clone(&shutdown),
+        ) {
             Ok(worker) => worker,
             Err(error) => {
                 shutdown.store(true, Ordering::SeqCst);
@@ -854,6 +895,19 @@ impl BridgeService {
                 return Err(error);
             }
         };
+        let csv_import = match Worker::spawn(config, JobKind::CsvImport, tx, Arc::clone(&shutdown)) {
+            Ok(worker) => worker,
+            Err(error) => {
+                shutdown.store(true, Ordering::SeqCst);
+                search.cancel();
+                resolve.cancel();
+                lyrics.cancel();
+                cache.cancel();
+                library.cancel();
+                lastfm.cancel();
+                return Err(error);
+            }
+        };
         Ok(Self {
             search,
             resolve,
@@ -861,6 +915,7 @@ impl BridgeService {
             cache,
             library,
             lastfm,
+            csv_import,
             shutdown,
             next_sequence: AtomicU64::new(0),
         })
@@ -917,6 +972,18 @@ impl BridgeService {
         self.library.submit(QueuedJob {
             seq,
             request: QueuedRequest::Library(command),
+        });
+        Ok(seq)
+    }
+
+    pub fn submit_csv_import(&self, command: Value) -> Result<u64, BridgeError> {
+        if self.shutdown.load(Ordering::SeqCst) {
+            return Err(BridgeError::cancelled());
+        }
+        let seq = self.next();
+        self.csv_import.submit(QueuedJob {
+            seq,
+            request: QueuedRequest::CsvImport(command),
         });
         Ok(seq)
     }

@@ -1,10 +1,16 @@
-# Import into Ember’s shared playlists
+# Import into Ember's shared playlists
 
 Ember-owned playlists need only your existing Ember server/access key, configured
 under **Ember → Settings** on PC. No Spotify or YouTube login is needed.
 The CSV must first have a complete match report with explicitly approved rows.
 The old matching command below still produces that report; its `upload` command
 writes to YouTube Music, not Ember.
+
+On the desktop, **Library ▸ Import from CSV** (the open-file icon next to
+**New playlist**) runs the same importer: pick the CSV and its approved match
+report, enter a title, choose *new playlist* / *add missing songs* / *repair
+albums*, preview, then save. The dialog shows the same counts the command below
+prints, and retries keep the same saved receipts as the command line.
 
 Preview an existing reviewed match report:
 

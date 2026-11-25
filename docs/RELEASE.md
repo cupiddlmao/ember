@@ -52,12 +52,12 @@ grep -E 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' \
 ```bash
 python -m unittest discover -q
 cd desktop-rust && python -m unittest -q test_bridge.py test_cache.py test_library.py
-cd desktop-rust && cargo test --locked          # 80 passed, 12 ignored
+cd desktop-rust && cargo test --locked          # 84 passed, 13 ignored
 .venv/bin/python -m unittest discover -s mobile/backend/tests -t . -v
 ```
 
 - [ ] Every command exits `0`.
-- [ ] `cargo test` still reports **12 ignored**. A higher number means new
+- [ ] `cargo test` still reports **13 ignored**. A higher number means new
       display coverage was added that this run did not execute — the ignored
       tests are the ones that catch visual regressions.
 
