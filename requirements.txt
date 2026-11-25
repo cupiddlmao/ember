@@ -1,2 +1,3 @@
-yt-dlp==2026.10.26
+# 2026.11 nightly: the stable Node challenge solver crashes on the current YouTube player
+yt-dlp==2026.11.24.232653.dev0
 ytmusicapi==1.12.3
