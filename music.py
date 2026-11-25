@@ -1,4 +1,5 @@
 """Public YouTube Music catalog for the Rust desktop bridge and mobile API."""
+import os
 import re
 import urllib.parse
 from pathlib import Path
@@ -153,11 +154,27 @@ def _search(query):
     return {'kind': 'search', 'title': 'Search results', 'tracks': tracks, 'returned': len(entries), 'unavailable': unavailable}
 
 
+def _ytdlp_options(**overrides):
+    """Shared yt-dlp options for stream resolution and audio download.
+
+    EMBER_YOUTUBE_COOKIES, when set to a Netscape cookies.txt exported from a
+    signed-in YouTube account, lets yt-dlp fetch recordings that would
+    otherwise be blocked for being age-restricted or sign-in-gated. Without
+    it the fetch stays anonymous.
+    """
+    options = {'quiet': True, 'logger': Quiet(), 'no_warnings': True, 'noplaylist': True}
+    cookie_file = os.environ.get('EMBER_YOUTUBE_COOKIES', '').strip()
+    if cookie_file:
+        options['cookiefile'] = cookie_file
+    options.update(overrides)
+    return options
+
+
 def resolve(track):
     video, _playlist = music_link(track['uri'])
     if not video:
         raise ValueError('Select a song to play.')
-    options = {'quiet': True, 'logger': Quiet(), 'no_warnings': True, 'noplaylist': True, 'socket_timeout': 15, 'retries': 1, 'extractor_retries': 1, 'format': 'bestaudio[protocol=https]/bestaudio', 'js_runtimes': {'node': {}}}
+    options = _ytdlp_options(socket_timeout=15, retries=1, extractor_retries=1, format='bestaudio[protocol=https]/bestaudio', js_runtimes={'node': {}})
     try:
         with yt_dlp.YoutubeDL(options) as client:
             info = client.extract_info('https://www.youtube.com/watch?v=' + video, download=False)
@@ -191,12 +208,11 @@ def download_audio(track, folder, progress=None, max_bytes=None):
                 if total:
                     progress(min(1, max(0, data.get('downloaded_bytes', 0) / total)))
         hooks.append(report)
-    options = {
-        'quiet': True, 'logger': Quiet(), 'no_warnings': True, 'noplaylist': True,
-        'socket_timeout': 30, 'retries': 1, 'extractor_retries': 1, 'noprogress': True,
-        'format': 'bestaudio[protocol=https]/bestaudio', 'overwrites': True,
-        'outtmpl': str(folder / (video + '.%(ext)s')), 'js_runtimes': {'node': {}},
-    }
+    options = _ytdlp_options(
+        socket_timeout=30, retries=1, extractor_retries=1, noprogress=True,
+        format='bestaudio[protocol=https]/bestaudio', overwrites=True,
+        outtmpl=str(folder / (video + '.%(ext)s')), js_runtimes={'node': {}},
+    )
     if hooks:
         options['progress_hooks'] = hooks
     if max_bytes:

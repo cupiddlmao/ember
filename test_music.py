@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from music import cached_playlist, download_audio, music_link, normalize, resolve, search
+from music import _ytdlp_options, cached_playlist, download_audio, music_link, normalize, resolve, search
 
 
 class MusicTests(unittest.TestCase):
@@ -86,6 +86,14 @@ class MusicTests(unittest.TestCase):
         cached = cached_playlist(url)
         self.assertEqual(cached['playlist']['title'], 'Night Drive')
         self.assertEqual([track['id'] for track in cached['tracks']], ['dm4tkSNKfFI'])
+
+    def test_ytdlp_options_pick_up_account_cookies_from_the_environment(self):
+        with patch.dict('os.environ', {'EMBER_YOUTUBE_COOKIES': '/etc/ember/cookies.txt'}):
+            self.assertEqual(_ytdlp_options()['cookiefile'], '/etc/ember/cookies.txt')
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertNotIn('cookiefile', _ytdlp_options())
+        with patch.dict('os.environ', {'EMBER_YOUTUBE_COOKIES': '   '}):
+            self.assertNotIn('cookiefile', _ytdlp_options())
 
     def test_download_writes_audio_file_and_returns_metadata(self):
         folder = tempfile.TemporaryDirectory()

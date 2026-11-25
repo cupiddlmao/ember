@@ -121,6 +121,26 @@ docker compose -p ember-mobile ps
 
 The image tag in Compose is `ember-mobile-api:0.4.0`. The build installs `PyYAML`, copies `playlist_search.py`, and includes the new playlist/lyrics services. The named audio-cache volume is preserved, and a separate playlist-library volume stores SQLite data outside the audio cache. Keep Compose project `ember-mobile`, the existing `.env` token and Tailscale `/ember` mount. Compose defaults to `127.0.0.1:18080` (set `EMBER_HOST_PORT` to preserve a different existing mapping). Do not run `down -v`. See [library storage and backups](backend/LIBRARY_API.md).
 
+### Optional: sign-in cookies for blocked recordings
+
+Some recordings are unavailable anonymously — age-restricted or explicit
+versions that YouTube only serves to a signed-in, age-verified account. The
+server fetches anonymously by default and reports those tracks as
+unavailable. To unlock them, give the server a cookies file:
+
+1. In a desktop browser signed in to the YouTube account, export the cookies
+   as a Netscape `cookies.txt` (any reputable "get cookies.txt" extension).
+2. Copy it to the VM next to `docker-compose.yml` as `cookies.txt`, mode 0600,
+   owned by the Compose user.
+3. Uncomment the `./cookies.txt:/var/lib/ember/cookies.txt:ro` volume line and
+   set `EMBER_YOUTUBE_COOKIES=/var/lib/ember/cookies.txt` in
+   `mobile/backend/.env`, then `docker compose -p ember-mobile up -d`.
+
+The cookies carry the account's YouTube access, so keep the file private to
+the VM and re-export it when it expires (YouTube rotates sessions; a stale
+file simply stops unblocking anything). The desktop app reads the same
+`EMBER_YOUTUBE_COOKIES` variable from its own environment.
+
 Check health without putting the key in a URL:
 
 ```bash
