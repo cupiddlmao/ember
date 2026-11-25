@@ -3,14 +3,12 @@ import SwiftUI
 struct NowPlayingView: View {
     @ObservedObject var player: PlayerController
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var library: SharedLibraryModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var isScrubbing = false
     @State private var scrubTime: Double = 0
     @State private var showingQueue = false
     @State private var lyricsTrack: Track?
-    @State private var addingTrack: Track?
 
     var body: some View {
         ZStack {
@@ -44,11 +42,6 @@ struct NowPlayingView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
-        .sheet(item: $addingTrack) { track in
-            AddToPlaylistView(track: track)
-                .environmentObject(library)
-                .environmentObject(model)
-        }
         .sheet(isPresented: $showingQueue) {
             QueueView()
                 .environmentObject(model)
@@ -81,7 +74,16 @@ struct NowPlayingView: View {
                 }
                 .accessibilityLabel("Song options")
                 .disabled(model.queue.current == nil)
-                Button { addingTrack = model.queue.current?.track } label: {
+                Button {
+                    // Nested sheets are unreliable on iOS 26: close now
+                    // playing first, then present add-to-playlist from the root.
+                    guard let track = model.queue.current?.track else { return }
+                    dismiss()
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 450_000_000)
+                        model.activeSheet = .addToPlaylist(track)
+                    }
+                } label: {
                     Image(systemName: "plus.circle")
                         .font(.system(size: 22))
                         .frame(width: 34, height: 34)

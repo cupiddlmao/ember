@@ -38,6 +38,11 @@ struct RootView: View {
                     .environmentObject(model)
                     .environmentObject(library)
                     .environmentObject(model.offline)
+            case .addToPlaylist(let track):
+                AddToPlaylistView(track: track)
+                    .environmentObject(model)
+                    .environmentObject(library)
+                    .environmentObject(model.offline)
             }
         }
         .alert(

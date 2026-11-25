@@ -4,11 +4,18 @@ import SwiftUI
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum Sheet: String, Identifiable {
+    enum Sheet: Equatable, Identifiable {
         case nowPlaying
         case settings
+        case addToPlaylist(Track)
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .nowPlaying: return "nowPlaying"
+            case .settings: return "settings"
+            case .addToPlaylist(let track): return "addToPlaylist-\(track.id)"
+            }
+        }
     }
 
     @Published var serverURL: String
