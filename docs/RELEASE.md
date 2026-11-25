@@ -209,6 +209,10 @@ backend.
       never a silent overwrite.
 - [ ] Airplane mode on the phone: cached playlists read-only, edits disabled,
       cached audio plays.
+- [ ] Offline downloads: download a playlist, then airplane mode from a cold
+      launch — the app opens read-only and the downloaded playlist plays
+      end to end; an undownloaded playlist reports an error for uncached audio.
+      Remove a download and confirm only unshared audio is deleted.
 - [ ] Last.fm: play a track past the threshold and confirm one scrobble; pause,
       buffer and seek must not produce extra scrobbles.
 - [ ] Song radio starts from a track menu and leaves the queue intact on failure.

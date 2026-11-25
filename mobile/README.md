@@ -335,12 +335,16 @@ Closed since this pass, by the 0.4.0 release gates and device use:
   counts, song radio, and lyrics tap-to-seek.
 - **Word-synced lyrics were confirmed good on the iPhone** (2026-11-25):
   highlight/scroll behavior reads correctly on device.
+- **The container was exercised against live YouTube** (2026-11-25): the
+  deployed `ember-mobile-api:0.4.0` fetched a live YT Music playlist preview,
+  downloaded a valid 3.5 MB M4A from YouTube (repeat served from the audio
+  cache), and answered LRCLIB with synced word timings, logging method, path,
+  status and duration only.
 
 Still open:
 
-- **The Docker container has not been exercised against live YouTube**; the
-  live playlist/LRCLIB checks used the local Python environment. The container
-  smoke test covered startup, auth, version, PyYAML, and logging.
+- **Offline downloads are in source but not device-tested** — see the section
+  above for what a device pass must cover.
 - **QueueCheck.swift, AudioCacheCheck.swift, and LyricsTimingCheck.swift run
   only in the manual macOS workflow**; their runtime result has not been
   reviewed from a real run.
@@ -353,11 +357,47 @@ real test must be a workflow build followed by a SideStore install.
 
 ## Deliberately deferred
 
-Google account login, private playlist access, account/library sync, offline
-playlist downloads, persistent queue state, Spicy Lyrics, Apple Music lyrics,
-public hosting, and any fake login screen. Search remains public-catalog only,
-and playlists remain public/unlisted only. Song radio and Last.fm reporting
-shipped in 0.4.0.
+Google account login, private playlist access, account/library sync, persistent
+queue state, Spicy Lyrics, Apple Music lyrics, public hosting, and any fake
+login screen. Search remains public-catalog only, and playlists remain
+public/unlisted only. Song radio, Last.fm reporting and offline playlist
+downloads shipped: radio and Last.fm in 0.4.0, offline downloads in source
+(needs a device pass before a release states it as verified).
+
+## Offline playlist downloads (source, awaiting a device pass)
+
+An Ember playlist can be downloaded for offline play from its detail screen's
+actions menu. Audio files go to `Application Support/Ember/Offline/{videoId}.m4a`
+(file-protected `completeUntilFirstUserAuthentication`, excluded from backups),
+with an `index.json` manifest of playlist → video IDs and the revision it was
+built from. Audio is keyed by video ID, so duplicate occurrences share one file
+and a revision bump never invalidates audio.
+
+- The store is capped at **2 GiB**; a download that would exceed it stops and
+  leaves a partial manifest, saying so. Pinned audio is never evicted; removing
+  a download deletes only audio no other playlist still pins.
+- Downloads run sequentially, paced ~2 s apart, staying well under the server's
+  60 requests/minute client limit; HTTP 429 backs off 30 s.
+- `updateManifest` runs when a downloaded playlist loads online: new video IDs
+  extend the manifest (marked incomplete until fetched), removed ones are
+  deleted, and the recorded revision advances.
+- Playback prefers an offline file and skips the server entirely; prefetch
+  skips already-downloaded tracks; the streaming cache (`Caches/EmberAudio`,
+  512 MiB LRU) protects pinned tracks from eviction.
+- **Cold launch offline works**: a transport failure during session restore now
+  keeps the configured client, so the app opens with cached library data
+  read-only and downloaded audio playable instead of showing the connection
+  screen.
+- Settings shows downloaded storage and a **Remove all downloads** action.
+- `OfflineStoreCheck.swift` runs in CI (compiled like the other checks) covering
+  manifests, pins, revision reconcile, shared-audio deletion and truncation
+  handling.
+
+Not yet verified on a device: a real download of a large playlist, background
+behavior (v1 is foreground-only; an interrupted download resumes on the next
+launch), and the cold-launch offline path. A playlist deleted on the server
+keeps its local manifest until its detail screen is opened or its download is
+removed manually.
 
 ## File map
 

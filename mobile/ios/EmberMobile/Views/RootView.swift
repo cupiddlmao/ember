@@ -17,6 +17,7 @@ struct RootView: View {
             }
         }
         .environmentObject(library)
+        .environmentObject(model.offline)
         .task(id: model.client?.identity) {
             library.configure(model.client)
             await library.refresh()

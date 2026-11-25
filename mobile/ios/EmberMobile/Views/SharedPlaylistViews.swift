@@ -28,6 +28,7 @@ struct SharedLibraryStatus: View {
 
 struct SharedLibrarySection: View {
     @EnvironmentObject private var library: SharedLibraryModel
+    @EnvironmentObject private var offline: OfflineStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var creating = false
 
@@ -57,6 +58,11 @@ struct SharedLibrarySection: View {
                                 .foregroundStyle(EmberTheme.secondaryText)
                         }
                         Spacer()
+                        if offline.state(for: playlist.id)?.complete == true {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundStyle(EmberTheme.pink)
+                                .accessibilityLabel("Downloaded for offline play")
+                        }
                         Image(systemName: "chevron.right").font(.caption)
                     }.padding(12).emberCard()
                 }.buttonStyle(.plain)
@@ -172,6 +178,7 @@ struct AddToPlaylistView: View {
 struct SharedPlaylistDetailView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var library: SharedLibraryModel
+    @EnvironmentObject private var offline: OfflineStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     let playlistID: String
@@ -188,10 +195,44 @@ struct SharedPlaylistDetailView: View {
     }
     private var editable: Bool { library.canEdit && playlist != nil && !library.loadingDetails.contains(playlistID) }
 
+    @ViewBuilder
+    private var downloadMenu: some View {
+        if offline.activePlaylistID == playlistID {
+            Button("Cancel download") { offline.cancelDownload() }
+        } else if let api = model.client, library.isOnline, let playlist {
+            if offline.state(for: playlistID) != nil {
+                Button("Refresh download") {
+                    Task { await offline.download(playlist: playlist, api: api) }
+                }
+            } else {
+                Button("Download for offline") {
+                    Task { await offline.download(playlist: playlist, api: api) }
+                }
+            }
+        } else {
+            Text("Connect to download")
+        }
+        // Removal is local-only, so it works offline too.
+        Button("Remove download", role: .destructive) {
+            try? offline.remove(playlistID: playlistID)
+        }
+        .disabled(offline.state(for: playlistID) == nil)
+    }
+
     var body: some View {
         List {
             Section { SharedLibraryStatus() }
             Section {
+                if let status = offline.statusLine(for: playlistID) {
+                    Label(status, systemImage: offline.isDownloading && offline.activePlaylistID == playlistID
+                        ? "arrow.down.circle" : "arrow.down.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(EmberTheme.secondaryText)
+                        .accessibilityLabel("Offline download status")
+                }
+                if let notice = offline.notice, offline.noticePlaylistID == playlistID {
+                    Text(notice).font(.caption).foregroundStyle(EmberTheme.pinkSoft)
+                }
                 Button("Play all") { model.playAll(entries.map(\.track)) }.disabled(entries.isEmpty)
                 if entries.isEmpty { Text("No songs yet. Add music from Search.").foregroundStyle(.secondary) }
             }
@@ -242,16 +283,26 @@ struct SharedPlaylistDetailView: View {
             ToolbarItem(placement: .topBarTrailing) { EditButton().disabled(!editable) }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("Rename") { renaming = true }
-                    Button("Delete playlist", role: .destructive) { deleting = true }
+                    downloadMenu
+                    Divider()
+                    Button("Rename") { renaming = true }.disabled(!editable)
+                    Button("Delete playlist", role: .destructive) { deleting = true }.disabled(!editable)
                 } label: { Image(systemName: "ellipsis.circle") }
-                .disabled(!editable)
                 .accessibilityLabel("Playlist actions")
             }
         }
         .toolbar(.visible, for: .tabBar)
-        .task { _ = await library.load(playlistID) }
-        .refreshable { await library.load(playlistID); await library.refresh() }
+        .task {
+            if let loaded = await library.load(playlistID) {
+                try? offline.updateManifest(for: loaded)
+            }
+        }
+        .refreshable {
+            if let loaded = await library.load(playlistID) {
+                try? offline.updateManifest(for: loaded)
+            }
+            await library.refresh()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await library.load(playlistID) } }
         }
