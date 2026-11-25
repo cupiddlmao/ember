@@ -16,11 +16,16 @@ services:
       EMBER_CACHE_MAX_MB: ${EMBER_CACHE_MAX_MB:-2048}
       EMBER_MAX_AUDIO_MB: ${EMBER_MAX_AUDIO_MB:-48}
       EMBER_TRUSTED_PROXIES: ${EMBER_TRUSTED_PROXIES:-}
+      # Optional cookies.txt exported from a signed-in YouTube account, so
+      # age-restricted or sign-in-gated recordings can still be fetched.
+      EMBER_YOUTUBE_COOKIES: ${EMBER_YOUTUBE_COOKIES:-}
     ports:
       - "127.0.0.1:${EMBER_HOST_PORT:-18080}:8080"
     volumes:
       - audio-cache:/var/lib/ember/cache
       - playlist-library:/var/lib/ember/library
+      # Uncomment and place the file next to docker-compose.yml to enable:
+      # - ./cookies.txt:/var/lib/ember/cookies.txt:ro
     healthcheck:
       test:
         - CMD
