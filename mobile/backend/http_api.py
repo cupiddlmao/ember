@@ -25,7 +25,7 @@ from .lyrics_service import LyricsError, LyricsService
 from .music_service import MusicService, UpstreamError
 from .playlist_service import PlaylistInputError, PlaylistService
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 def build_commit() -> str:
