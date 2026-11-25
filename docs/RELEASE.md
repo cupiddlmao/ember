@@ -82,6 +82,8 @@ bash run.sh          # creates .venv, builds release, launches
 
 - [ ] Release build succeeds and the window opens.
 - [ ] `desktop-rust/target/release/ember-rust` exists.
+- [ ] The window you opened is the binary you just built: launch it from the
+      desktop icon and `readlink /proc/<pid>/exe` resolves inside the checkout.
 - [ ] Smoke test: search, play, pause, seek, next/previous, lyrics follow and
       tap-to-seek, queue reorder, Settings opens, shared playlist opens,
       Last.fm shows its connected state.
@@ -92,6 +94,15 @@ Shipping note: there is no installer or package. The binary is not standalone â€
 it locates `music.py`, `.venv/bin/python` and `desktop-rust/bridge.py` by
 walking up from the executable, or honours `EMBER_CHECKOUT_ROOT`. A release is
 the binary plus a working checkout, not a single file.
+
+For the same reason, a desktop launcher must exec that checkout binary instead
+of a copy of it. `~/.local/bin/ember` is a shim that does, and
+`io.ember.Player.desktop` points at it. A copied runtime bundle drifts
+silently: the icon used to exec a hand-assembled copy 16 days and a full UI
+revision behind, and no gate could see it, because the stale copy still built,
+still ran, and still played. Setting `EMBER_CHECKOUT_ROOT` to such a copy is
+what made it lie; the shim sets nothing and lets discovery walk up from the
+executable.
 
 ## 4. Python backend
 
