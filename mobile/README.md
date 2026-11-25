@@ -324,20 +324,40 @@ A free Apple ID installation expires after 7 days; refresh it in SideStore. The 
 
 ### Not verified
 
-- **No Xcode build or IPA was produced here.** This machine is Linux with no Xcode/macOS, and the GitHub Actions workflow has not been run. The Swift app has not been compiled or type-checked locally.
-- **`QueueCheck.swift`, `AudioCacheCheck.swift`, and `LyricsTimingCheck.swift` were not run locally** because Swift is unavailable. They are wired into the manual Mac workflow, but their runtime result is unverified.
-- **No iPhone installation, launch, UI walkthrough, queued playback, background playback, lock-screen next/previous, prefetch-while-locked, or lyrics interaction was tested.** The new sync-offset controls and Settings build card were not viewed on a device or simulator.
-- **The GitHub build-identification path was not exercised.** The workflow injects `EMBER_GIT_COMMIT` and verifies it in the packaged `Info.plist`, but the unsigned build has not run here.
-- **Word-synced lyrics were not rendered on an iPhone.** The live LRCLIB response was parsed successfully, but the SwiftUI word-highlight/scroll behavior and the start-only-word fallback were not viewed on a device; that record also had no word `end_ms` values.
-- **No Tailscale Serve, `/ember` phone connection, SideStore signing, or certificate check was tested.**
-- **The Docker container was not exercised against live YouTube**; the live playlist/LRCLIB checks used the local Python environment. The container smoke test covered startup, auth, version, PyYAML, and logging.
-- The earlier milestone's live audio download/playback result was not rerun in this pass. The existing backend audio tests still pass.
+Closed since this pass, by the 0.4.0 release gates and device use:
 
-Do not treat static Xcode checks or backend tests as proof that the app compiles or that iPhone playback, queue continuation, or lyrics rendering work. The first real test must be a workflow build followed by a SideStore install.
+- **IPA build and install now ran end to end**: workflow build (`ios-unsigned`),
+  SideStore install, the Tailscale `/ember` phone connection, and the Settings
+  build card were verified during the 0.4.0 release (see the release checklist
+  and the `v0.4.0` GitHub release).
+- **Cross-device acceptance was run by a human on 0.4.0**: queued playback,
+  playlist sync with conflicts, airplane-mode read-only state, Last.fm scrobble
+  counts, song radio, and lyrics tap-to-seek.
+- **Word-synced lyrics were confirmed good on the iPhone** (2026-11-25):
+  highlight/scroll behavior reads correctly on device.
+
+Still open:
+
+- **The Docker container has not been exercised against live YouTube**; the
+  live playlist/LRCLIB checks used the local Python environment. The container
+  smoke test covered startup, auth, version, PyYAML, and logging.
+- **QueueCheck.swift, AudioCacheCheck.swift, and LyricsTimingCheck.swift run
+  only in the manual macOS workflow**; their runtime result has not been
+  reviewed from a real run.
+- Background playback, lock-screen next/previous, and prefetch-while-locked
+  were not re-verified on 0.4.0 specifically.
+
+Do not treat static Xcode checks or backend tests as proof that the app compiles
+or that iPhone playback, queue continuation, or lyrics rendering work. The first
+real test must be a workflow build followed by a SideStore install.
 
 ## Deliberately deferred
 
-Google account login, private playlist access, account/library sync, offline playlist downloads, persistent queue state, Spicy Lyrics, Apple Music lyrics, radio, Last.fm, public hosting, and any fake login screen. Search remains public-catalog only, and playlists remain public/unlisted only.
+Google account login, private playlist access, account/library sync, offline
+playlist downloads, persistent queue state, Spicy Lyrics, Apple Music lyrics,
+public hosting, and any fake login screen. Search remains public-catalog only,
+and playlists remain public/unlisted only. Song radio and Last.fm reporting
+shipped in 0.4.0.
 
 ## File map
 
