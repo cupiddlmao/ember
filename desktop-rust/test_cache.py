@@ -52,10 +52,38 @@ class CacheTests(unittest.TestCase):
         self.assertTrue(payload["stream_url"].startswith("file:///"))
         bridge.cache_action("clear_cache")
         output = io.StringIO()
-        with patch.object(bridge, "read_request", return_value=request), patch.object(music, "resolve", return_value=(TRACK, "https://audio.googlevideo.com/audio")) as resolve:
+        with patch.object(bridge, "read_request", return_value=request), \
+                patch.object(music, "download_audio", side_effect=self.download), \
+                patch.object(music, "resolve", return_value=(TRACK, "https://audio.googlevideo.com/audio")) as resolve:
+            bridge.run(output)
+            # A signed stream URL is bound to the address that minted it, so the
+            # player must not be handed one when the bytes can be fetched here.
+            resolve.assert_not_called()
+        self.assertTrue(json.loads(output.getvalue())["data"]["stream_url"].startswith("file:///"))
+
+    def test_resolve_streams_the_url_when_the_recording_cannot_be_fetched(self):
+        request = {"action": "resolve", "track": {**TRACK, "artists": ["Tycho"], "album": "Awake"}}
+        url = "https://audio.googlevideo.com/audio"
+        output = io.StringIO()
+        with patch.object(bridge, "read_request", return_value=request), \
+                patch.object(music, "download_audio", side_effect=RuntimeError("refused")), \
+                patch.object(music, "resolve", return_value=(TRACK, url)) as resolve:
             bridge.run(output)
             resolve.assert_called_once()
-        self.assertEqual(json.loads(output.getvalue())["data"]["stream_url"], "https://audio.googlevideo.com/audio")
+        self.assertEqual(json.loads(output.getvalue())["data"]["stream_url"], url)
+
+    def test_resolve_streams_the_url_when_the_cache_is_disabled(self):
+        request = {"action": "resolve", "track": {**TRACK, "artists": ["Tycho"], "album": "Awake"}}
+        (bridge.cache_root() / "settings.json").parent.mkdir(parents=True, exist_ok=True)
+        (bridge.cache_root() / "settings.json").write_text(json.dumps({"enabled": False}))
+        url = "https://audio.googlevideo.com/audio"
+        output = io.StringIO()
+        with patch.object(bridge, "read_request", return_value=request), \
+                patch.object(music, "download_audio", side_effect=AssertionError("must not download")), \
+                patch.object(music, "resolve", return_value=(TRACK, url)) as resolve:
+            bridge.run(output)
+            resolve.assert_called_once()
+        self.assertEqual(json.loads(output.getvalue())["data"]["stream_url"], url)
 
     def test_cache_storage_failure_does_not_block_stream_resolution(self):
         with patch.object(bridge, "cache_store", side_effect=OSError("disk unavailable")):

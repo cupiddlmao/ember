@@ -404,6 +404,27 @@ def cached_audio(track):
         return None  # A broken/unwritable cache must never prevent streaming.
 
 
+def playable_audio(track):
+    """Return a local file URI for a track, or None when it must be streamed.
+
+    YouTube signs every stream URL to the address that minted it, so a player
+    that fetches the URL itself fails whenever its request leaves by a
+    different address than the extraction did - which IPv6 temporary addresses
+    guarantee it will, most of the time. yt-dlp re-mints and retries inside one
+    session, so an uncached recording is fetched here and played as a file, the
+    way the phone plays it. A cache that cannot be written falls back to
+    streaming the URL.
+    """
+    local = cached_audio(track)
+    if local or not cache_enabled():
+        return local
+    try:
+        cache_action("download", track)
+    except (RuntimeError, OSError, ValueError):
+        return None
+    return cached_audio(track)
+
+
 def cache_action(action, track=None):
     store = cache_store()
     root = cache_root()
@@ -589,7 +610,7 @@ def run(real_stdout) -> None:
 
     track = request_track(request.get("track"))
     with contextlib.redirect_stdout(sys.stderr):
-        local = cached_audio(track)
+        local = playable_audio(track)
     if local:
         emit(real_stdout, {"ok": True, "data": {"track": slim_track(track), "stream_url": local}})
         return
