@@ -1,3 +1,11 @@
+# The project name has to live in the file. Compose otherwise names the project
+# after its directory, so a plain `docker compose up -d --build` in
+# mobile/backend creates a SECOND stack (backend-api-1) beside the deployed one
+# (ember-mobile-api-1), which then dies on the published port and leaves the
+# stale container holding it. The docs say `-p ember-mobile`; this makes the
+# command that forgets to say so do the same thing.
+name: ember-mobile
+
 services:
   api:
     build:
