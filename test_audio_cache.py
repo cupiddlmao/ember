@@ -1,11 +1,27 @@
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from audio_cache import AudioStore
+
+
+class _SteppingClock:
+    """A clock whose every reading is a distinct, later instant.
+
+    Recency is stored as ``last_used_at``, so two operations that land in the
+    same real clock tick tie, and a tie-break rather than recency decides what
+    eviction removes. Stepping a stand-in clock keeps the test about ordering
+    instead of about how fine-grained the host's clock happens to be.
+    """
+
+    def __init__(self, start=1_000.0):
+        self.now = start
+
+    def time(self):
+        self.now += 1.0
+        return self.now
 
 
 TRACK = {
@@ -59,14 +75,14 @@ class AudioStoreTests(unittest.TestCase):
         first = self.track('aaaaaaaaaaa', 'First')
         second = self.track('bbbbbbbbbbb', 'Second')
         third = self.track('ccccccccccc', 'Third')
-        self.store.download(first)
-        self.store.download(second)
-        time.sleep(0.01)
-        self.store.lookup(first)
-        self.store.download(third)
-        self.assertIsNotNone(self.store.lookup(first))
-        self.assertIsNone(self.store.lookup(second))
-        self.assertIsNotNone(self.store.lookup(third))
+        with patch('audio_cache.time', _SteppingClock()):
+            self.store.download(first)
+            self.store.download(second)
+            self.store.lookup(first)
+            self.store.download(third)
+            self.assertIsNotNone(self.store.lookup(first))
+            self.assertIsNone(self.store.lookup(second))
+            self.assertIsNotNone(self.store.lookup(third))
         self.assertLessEqual(self.store.stats()['auto_bytes'], 250)
 
     def test_automatic_copy_can_be_promoted_without_redownloading(self):
