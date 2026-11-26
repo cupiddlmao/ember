@@ -3,7 +3,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from music import _ytdlp_options, cached_playlist, download_audio, music_link, normalize, resolve, search
+import yt_dlp
+
+from music import AUDIO_FORMAT, _ytdlp_options, cached_playlist, download_audio, music_link, normalize, resolve, search
 
 
 class MusicTests(unittest.TestCase):
@@ -94,6 +96,23 @@ class MusicTests(unittest.TestCase):
             self.assertNotIn('cookiefile', _ytdlp_options())
         with patch.dict('os.environ', {'EMBER_YOUTUBE_COOKIES': '   '}):
             self.assertNotIn('cookiefile', _ytdlp_options())
+
+    def test_audio_format_prefers_audio_only_and_accepts_a_muxed_recording(self):
+        selector = yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}).build_format_selector(AUDIO_FORMAT)
+
+        def pick(*formats):
+            # The same context yt_dlp's own format selection builds.
+            return [f['format_id'] for f in selector({
+                'formats': list(formats), 'incomplete_formats': True, 'has_merged_format': True,
+            })]
+
+        audio_only = {'format_id': '251', 'acodec': 'opus', 'vcodec': 'none', 'protocol': 'https'}
+        muxed = {'format_id': '18', 'acodec': 'mp4a.40.2', 'vcodec': 'avc1.42001E', 'protocol': 'https'}
+        storyboard = {'format_id': 'sb0', 'acodec': 'none', 'vcodec': 'none', 'protocol': 'mhtml'}
+        manifest = {'format_id': '96', 'acodec': 'mp4a.40.2', 'vcodec': 'avc1', 'protocol': 'm3u8_native'}
+        self.assertEqual(pick(muxed, audio_only), ['251'])
+        self.assertEqual(pick(muxed), ['18'])
+        self.assertEqual(pick(storyboard, manifest), [])
 
     def test_download_writes_audio_file_and_returns_metadata(self):
         folder = tempfile.TemporaryDirectory()
