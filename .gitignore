@@ -29,6 +29,8 @@ audio/
 !**/.env.example
 !mobile/backend/.env.example
 mobile/backend/.env
+# YouTube sign-in cookies placed here for the container's bind mount
+mobile/backend/cookies.txt
 mobile/backend/.venv/
 mobile/ios/build/
 mobile/ios/DerivedData/
