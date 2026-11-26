@@ -18,7 +18,10 @@ class AudioCache:
     def __init__(self, root: Path, max_bytes: int, max_entry_bytes: int | None = None):
         self.root = Path(root)
         self.max_bytes = max(1, int(max_bytes))
-        self.max_entry_bytes = max(1, int(max_entry_bytes or self.max_bytes))
+        # A per-entry cap above the whole-cache budget would let a fresh entry
+        # evict itself, leaving get_or_create to return a path to a file it had
+        # just deleted.
+        self.max_entry_bytes = min(max(1, int(max_entry_bytes or self.max_bytes)), self.max_bytes)
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -68,24 +71,34 @@ class AudioCache:
             return path
 
     def _evict(self) -> None:
+        """Drop least-recently-used entries until the cache fits ``max_bytes``.
+
+        ``get_or_create`` touches an entry on every hit, so mtime is how this
+        cache records use. Ties are broken by name because coarse timestamps,
+        or a cache restored from a backup, can give every entry the same mtime,
+        and eviction must not then depend on the order the filesystem lists.
+        """
         try:
-            files = [item for item in self.root.glob("*.m4a") if item.is_file()]
+            found = [item for item in self.root.glob("*.m4a") if item.is_file()]
         except OSError:
             return
-        total = 0
-        for item in files:
+        entries, total = [], 0
+        for item in found:
             try:
-                total += item.stat().st_size
+                stats = item.stat()
             except OSError:
+                # Gone since the listing, so it no longer occupies the budget.
                 continue
+            entries.append((stats.st_mtime_ns, item.name, item, stats.st_size))
+            total += stats.st_size
         if total <= self.max_bytes:
             return
-        for item in sorted(files, key=lambda candidate: candidate.stat().st_mtime):
+        for _modified, _name, item, size in sorted(entries, key=lambda entry: entry[:2]):
             if total <= self.max_bytes:
                 break
             try:
-                size = item.stat().st_size
                 item.unlink()
-                total -= size
             except OSError:
+                # Unreadable or already removed: nothing was reclaimed.
                 continue
+            total -= size
