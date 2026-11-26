@@ -41,6 +41,13 @@ not implemented.
 - the checkout's Python environment. Run `bash run.sh` from the checkout; it
   creates `.venv`, installs `ytmusicapi`/`yt-dlp`, builds this app and launches
   it. yt-dlp may use Node.js for YouTube JavaScript processing.
+- optional, for recordings YouTube gates behind sign-in: a Netscape
+  `cookies.txt` exported from a browser signed in to the YouTube account, at
+  `~/.config/ember/cookies.txt` or wherever `EMBER_YOUTUBE_COOKIES` points.
+  Without it those recordings resolve to a refusal rather than audio.
+  `desktop-env.sh` exports the variable for `run.sh` and for the installed
+  launcher, so both read the same file and neither can be configured without
+  the other.
 - outbound access to YouTube, the approved YouTube artwork hosts and LRCLIB.
   No LRCLIB key or account is needed.
 
@@ -210,9 +217,11 @@ and resolve so the row, Home card and player thumbnail agree. Lyrics use the
 existing `mobile.backend.lyrics_service.LyricsService` LRCLIB implementation
 and are bounded again by the bridge: at most 800 lines, 500 characters per
 line, and integer millisecond timestamps within 24 hours. It does not read or
-migrate login/account configuration. Temporary stream URLs are kept in memory
-only, passed to GStreamer's `playbin`, and redacted from debug output. They are
-never displayed or stored.
+migrate login/account configuration. The one credential it can present is the
+exported YouTube cookies file above, passed to yt-dlp as `cookiefile`; it is
+never read into the UI, the cache or the logs. Temporary stream URLs are kept
+in memory only, passed to GStreamer's `playbin`, and redacted from debug
+output. They are never displayed or stored.
 
 Search, resolve, lyrics, caching and shared playlists each have their own worker and one pending job.
 Replacing a request cancels that lane's active Python process group and ignores
