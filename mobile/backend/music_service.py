@@ -2,18 +2,21 @@
 
 The desktop ``music`` module already contains the public catalog search and
 yt-dlp download logic, so this module reuses it instead of duplicating it.
-No Google account credentials are read or used.
+The saved cookie file is read locally so broken sign-in can be named; this
+module sends nothing itself and keeps upstream messages credential-free.
 """
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+import os
 import requests
 import unicodedata
 import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +28,111 @@ import music  # noqa: E402  (path setup must happen first)
 
 VIDEO_ID = re.compile(r"^[\w-]{11}$", re.ASCII)
 
+# The saved-cookie states reported by /v1/health. "configured" means only that
+# the file holds sign-in rows that are not past their recorded expiry; YouTube
+# can revoke a session server-side, and seeing that would take a network probe
+# on a health poll, so the state never claims YouTube accepts the cookies.
+SIGNIN_NOT_CONFIGURED = "not_configured"
+SIGNIN_MISSING = "missing"
+SIGNIN_INVALID = "invalid"
+SIGNIN_NO_AUTH = "no_auth_cookies"
+SIGNIN_EXPIRED = "expired"
+SIGNIN_CONFIGURED = "configured"
+SIGNIN_BROKEN = frozenset({SIGNIN_MISSING, SIGNIN_INVALID, SIGNIN_NO_AUTH, SIGNIN_EXPIRED})
+
+# A signed-in YouTube export carries these; a file holding only preferences
+# (PREF and the like) looks like cookies but cannot satisfy a sign-in gate.
+AUTH_COOKIE_NAMES = frozenset({
+    "SID", "HSID", "SSID", "APISID", "SAPISID", "LOGIN_INFO",
+    "__Secure-1PSID", "__Secure-3PSID",
+    "__Secure-1PAPISID", "__Secure-3PAPISID",
+    "__Host-1PLSID", "__Host-3PLSID",
+})
+COOKIE_DOMAINS = ("youtube.com", "google.com")
+
+GENERIC_AUDIO_MESSAGE = (
+    "YouTube could not provide this audio. It may be unavailable, "
+    "region or age restricted, or require sign-in."
+)
+
+# A refusal caused by our own broken sign-in must not read as "this recording
+# is unavailable": the user then retries tracks instead of fixing the cookies.
+SIGNIN_BROKEN_MESSAGE = (
+    "Ember's saved YouTube cookies are missing, unreadable or no longer "
+    "signed in, so YouTube refused this recording. Export fresh cookies from "
+    "the account and point EMBER_YOUTUBE_COOKIES at the new file."
+)
+
+# Both music.py refusal paths start with this phrase. Matching it keeps an
+# unsupported-stream failure from being blamed on the cookies.
+REFUSAL_MARKER = "could not provide this audio"
+
 
 class UpstreamError(RuntimeError):
     """A fixed, credential-free message that is safe to return to the app."""
+
+
+class SignInBrokenError(UpstreamError):
+    """YouTube refused a recording because Ember's saved sign-in is unusable."""
+
+
+def _cookie_rows(text: str):
+    """Yield (domain, name, expiry) for each Netscape cookie row."""
+    for line in text.splitlines():
+        if line.startswith("#HttpOnly_"):
+            line = line[len("#HttpOnly_"):]
+        elif line.startswith("#") or not line.strip():
+            continue
+        fields = line.split("\t")
+        if len(fields) < 7:
+            continue
+        try:
+            expiry = int(fields[4])
+        except ValueError:
+            continue
+        name = fields[5].strip()
+        if name:
+            yield fields[0].lstrip(".").lower(), name, expiry
+
+
+def youtube_signin_state(path_value: str | None = None) -> str:
+    """Classify the saved cookies from the file alone; never contact YouTube."""
+    raw = os.environ.get("EMBER_YOUTUBE_COOKIES", "") if path_value is None else path_value
+    configured = (raw or "").strip()
+    if not configured:
+        return SIGNIN_NOT_CONFIGURED
+    try:
+        with open(configured, "rb") as handle:
+            data = handle.read(2 * 1024 * 1024)
+    except OSError:
+        return SIGNIN_MISSING
+    if not data.strip():
+        # A zero-byte file is not an empty cookie jar: yt-dlp refuses to load
+        # it at all, so it cannot be treated as a harmless anonymous export.
+        return SIGNIN_INVALID
+    now = time.time()
+    auth_seen = auth_live = False
+    for domain, name, expiry in _cookie_rows(data.decode("utf-8", "replace")):
+        if name not in AUTH_COOKIE_NAMES:
+            continue
+        if not any(domain == d or domain.endswith("." + d) for d in COOKIE_DOMAINS):
+            continue
+        auth_seen = True
+        # Netscape expiry 0 means a session cookie, which is still live.
+        if expiry == 0 or expiry > now:
+            auth_live = True
+    if not auth_seen:
+        return SIGNIN_NO_AUTH
+    return SIGNIN_CONFIGURED if auth_live else SIGNIN_EXPIRED
+
+
+def refusal_is_signin(detail: str) -> bool:
+    """Whether an upstream refusal is explained by our unusable sign-in.
+
+    With a usable-looking cookie file the recording may simply be private, so
+    it stays a generic refusal rather than telling the user to re-export.
+    """
+    return REFUSAL_MARKER in detail and youtube_signin_state() in SIGNIN_BROKEN
 
 
 def _artist(track: dict[str, Any]) -> str:
@@ -141,11 +246,10 @@ class MusicService:
         uri = f"https://music.youtube.com/watch?v={video_id}"
         try:
             _track, source = music.download_audio({"uri": uri}, work, max_bytes=self.max_audio_bytes)
-        except Exception:
-            raise UpstreamError(
-                "YouTube could not provide this audio. It may be unavailable, "
-                "region or age restricted, or require sign-in."
-            ) from None
+        except Exception as error:
+            if refusal_is_signin(str(error)):
+                raise SignInBrokenError(SIGNIN_BROKEN_MESSAGE) from None
+            raise UpstreamError(GENERIC_AUDIO_MESSAGE) from None
         destination = work / "prepared.m4a"
         _convert_to_m4a(Path(source), destination)
         if destination.stat().st_size > self.max_audio_bytes:

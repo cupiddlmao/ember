@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from mobile.backend.config import Settings
 from mobile.backend.http_api import RateLimiter, create_server
-from mobile.backend.music_service import UpstreamError
+from mobile.backend.music_service import SignInBrokenError, UpstreamError
 from mobile.backend.playlist_service import PlaylistInputError
 
 TOKEN = "test-token-that-is-long-enough-1234"
@@ -223,6 +223,26 @@ class ApiTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_health_reports_the_saved_youtube_signin_state(self):
+        with patch.dict(os.environ, {"EMBER_YOUTUBE_COOKIES": ""}):
+            status, _, body = self.request("/v1/health")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["youtube_signin"], "not_configured")
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["version"], "0.4.0")
+
+        root = Path(self.temporary.name)
+        cookies = root / "cookies.txt"
+        cookies.write_text(".youtube.com\tTRUE\t/\tFALSE\t0\tSAPISID\tvalue\n")
+        with patch.dict(os.environ, {"EMBER_YOUTUBE_COOKIES": str(cookies)}):
+            status, _, body = self.request("/v1/health")
+        self.assertEqual(json.loads(body)["youtube_signin"], "configured")
+
+        with patch.dict(os.environ, {"EMBER_YOUTUBE_COOKIES": str(root / "absent.txt")}):
+            status, _, body = self.request("/v1/health")
+        self.assertEqual(json.loads(body)["youtube_signin"], "missing")
+
     def test_health_reports_the_build_commit(self):
         with patch.dict(os.environ, {"EMBER_GIT_COMMIT": "bc01946"}):
             status, _, body = self.request("/v1/health")
@@ -293,6 +313,21 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(self.error_body(body)[0], "not_found")
         self.assertEqual(self.service.audio_calls, [])
+
+    def test_audio_distinguishes_broken_signin_from_a_refused_recording(self):
+        self.service.error = SignInBrokenError(
+            "Ember's saved YouTube cookies are missing, so YouTube refused this recording."
+        )
+        status, _, body = self.request("/v1/tracks/dQw4w9WgXcQ/audio")
+        self.assertEqual(status, 502)
+        self.assertEqual(self.error_body(body)[0], "signin_broken")
+
+        # A recording YouTube simply will not serve keeps the per-track code
+        # the iPhone client already skips.
+        self.service.error = UpstreamError("YouTube could not provide this audio.")
+        status, _, body = self.request("/v1/tracks/dQw4w9WgXcQ/audio")
+        self.assertEqual(status, 502)
+        self.assertEqual(self.error_body(body)[0], "upstream_error")
 
     def test_upstream_errors_are_safe_and_specific(self):
         self.service.error = UpstreamError("YouTube could not provide this audio.")

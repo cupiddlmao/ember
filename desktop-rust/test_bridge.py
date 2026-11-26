@@ -1,8 +1,11 @@
 import io
 import json
+import os
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from bridge import (
@@ -18,6 +21,7 @@ from bridge import (
     normalize_lyrics_payload,
     playable_audio,
     request_track,
+    signin_refusal_message,
     slim_track,
     stream_url,
 )
@@ -298,6 +302,43 @@ class CsvImportTests(unittest.TestCase):
         self.assertFalse(envelope["ok"])
         self.assertEqual(envelope["error"]["code"], "invalid_input")
         self.assertNotIn("https://", envelope["error"]["message"])
+
+
+class SignInRefusalTests(unittest.TestCase):
+    """A refusal from broken cookies must not read as a per-track problem."""
+
+    REFUSAL = (
+        "YouTube could not provide this audio. It may be unavailable, "
+        "region/age restricted, or require sign-in. Try another recording."
+    )
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name)
+
+    def use(self, text):
+        path = self.directory / "cookies.txt"
+        path.write_text(text)
+        return patch.dict(os.environ, {"EMBER_YOUTUBE_COOKIES": str(path)})
+
+    def test_an_unusable_cookie_file_names_the_repair(self):
+        with self.use(""):
+            message = signin_refusal_message(self.REFUSAL)
+        self.assertIsNotNone(message)
+        self.assertIn("EMBER_YOUTUBE_COOKIES", message)
+
+    def test_a_healthy_cookie_file_leaves_a_private_video_generic(self):
+        with self.use(".youtube.com\tTRUE\t/\tFALSE\t0\tSAPISID\tvalue\n"):
+            self.assertIsNone(signin_refusal_message(self.REFUSAL))
+
+    def test_an_unsupported_stream_is_not_a_signin_failure(self):
+        with self.use(""):
+            self.assertIsNone(
+                signin_refusal_message(
+                    "YouTube returned an unsupported or restricted audio stream."
+                )
+            )
 
 
 class PlayableAudioTests(unittest.TestCase):
