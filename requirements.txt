@@ -1,3 +1,8 @@
 # 2026.11 nightly: the stable Node challenge solver crashes on the current YouTube player
 yt-dlp==2026.11.24.232653.dev0
+# The EJS challenge-solver scripts yt-dlp needs to sign its YouTube requests.
+# Without them a fetch still works for most tracks, but a signed-in fetch of an
+# age-restricted recording comes back as "Sign in to confirm your age". This
+# version is pinned by yt-dlp itself: move it in the same commit as yt-dlp.
+yt-dlp-ejs==0.8.0
 ytmusicapi==1.12.3

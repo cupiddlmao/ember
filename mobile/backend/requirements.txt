@@ -1,5 +1,10 @@
 requests==2.32.5
 # 2026.11 nightly: the stable Node challenge solver crashes on the current YouTube player
 yt-dlp==2026.11.24.232653.dev0
+# The challenge-solver scripts behind signed-in YouTube fetches. A container
+# without them resolves ordinary tracks fine and reports age-restricted ones as
+# "Sign in to confirm your age", because YouTube withholds the formats until the
+# JS challenge is answered. Pinned by yt-dlp: update it with yt-dlp, not alone.
+yt-dlp-ejs==0.8.0
 ytmusicapi==1.12.3
 PyYAML==6.0.3

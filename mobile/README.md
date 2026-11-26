@@ -144,6 +144,17 @@ the VM and re-export it when it expires (YouTube rotates sessions; a stale
 file simply stops unblocking anything). The desktop app reads the same
 `EMBER_YOUTUBE_COOKIES` variable from its own environment.
 
+Cookies are only half of it. YouTube withholds the age-restricted formats
+until yt-dlp answers its JavaScript challenge, so an ordinary track resolves
+while a gated one is refused — and `docker logs` shows no error, because the
+request succeeded and returned a page that says "Sign in to confirm your
+age". Two things make that fetch work, and neither is obvious from the
+symptom: a Node runtime in the image (22 or newer), and the pinned
+`yt-dlp-ejs` challenge-solver package. A container built without the latter
+reproduces the refusal exactly, so when a gated recording stops playing,
+check `docker exec ember-mobile-api-1 python3 -c "import yt_dlp_ejs"` before
+suspecting the cookies.
+
 Check health without putting the key in a URL:
 
 ```bash
