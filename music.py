@@ -23,7 +23,10 @@ class Quiet:
 # cookies were added for, with "requested format is not available". The muxed
 # clause comes last, so an ordinary track still resolves to its best audio-only
 # stream and only a recording with nothing audio-only falls back to format 18.
-AUDIO_FORMAT = 'bestaudio[protocol=https]/bestaudio/best[acodec!=none][protocol=https]'
+# Every clause is https-only for the same reason: a bare `bestaudio` also matches
+# an m3u8 manifest, and on a gated recording that manifest outranked the muxed
+# format the players can play, so the stream broke after playback had started.
+AUDIO_FORMAT = 'bestaudio[protocol=https]/best[acodec!=none][protocol=https]'
 
 
 def music_link(value):
@@ -49,14 +52,30 @@ def _artist_name(value):
     return name or 'Unknown artist'
 
 
+def _duration_seconds(value):
+    """Length in seconds, or 0 when the provider gave no usable number.
+
+    ytmusicapi puts the word "LIVE" where the duration text would be for a live
+    recording. int() on that raised, and _available() counts anything normalize()
+    rejects as unavailable, so live recordings silently disappeared from search
+    and playlist results instead of showing without a length.
+    """
+    if isinstance(value, str):
+        try:
+            return sum(int(part) * 60 ** i for i, part in enumerate(reversed(value.split(':'))))
+        except ValueError:
+            return 0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def normalize(item):
     video = item.get('videoId') or item.get('id', '')
     if not re.fullmatch(r'[\w-]{11}', str(video), flags=re.ASCII):
         raise ValueError('YouTube returned an invalid track ID.')
-    duration = item.get('duration_seconds') or item.get('duration') or item.get('length') or 0
-    if isinstance(duration, str):
-        parts = duration.split(':')
-        duration = sum(int(part) * 60 ** i for i, part in enumerate(reversed(parts)))
+    duration = _duration_seconds(item.get('duration_seconds') or item.get('duration') or item.get('length') or 0)
     artists = item.get('artists') or [{'name': item.get('artist') or item.get('uploader') or 'Unknown artist'}]
     images = item.get('thumbnails') or ([{'url': item['thumbnail']}] if item.get('thumbnail') else [])
     if not images:
@@ -72,7 +91,7 @@ def normalize(item):
             'name': (item.get('album') or {}).get('name', '') if isinstance(item.get('album'), dict) else item.get('album', ''),
             'images': images,
         },
-        'duration_ms': round(float(duration) * 1000),
+        'duration_ms': round(duration * 1000),
     }
 
 
@@ -180,16 +199,35 @@ def _ytdlp_options(**overrides):
     return options
 
 
+def _extract(options, video, download, refusal):
+    """Run one yt-dlp extraction, reporting every failure as ``refusal``.
+
+    yt-dlp raises DownloadError for a refused recording, but it re-raises its own
+    YoutubeDLError subclasses out of extraction unchanged (a cookiefile it cannot
+    load, a cancelled download), and those reached callers as crashes instead of
+    a failure they can classify. Its close step also rewrites the cookies file, so
+    a read-only deployment path raised PermissionError after the stream had
+    already resolved; that is not a refusal, and throwing playable audio away for
+    it is wrong.
+    """
+    info = None
+    try:
+        with yt_dlp.YoutubeDL(options) as client:
+            info = client.extract_info('https://www.youtube.com/watch?v=' + video, download=download)
+    except yt_dlp.utils.YoutubeDLError:
+        raise RuntimeError(refusal) from None
+    except OSError:
+        if info is None:
+            raise RuntimeError(refusal) from None
+    return info
+
+
 def resolve(track):
     video, _playlist = music_link(track['uri'])
     if not video:
         raise ValueError('Select a song to play.')
     options = _ytdlp_options(socket_timeout=15, retries=1, extractor_retries=1, format=AUDIO_FORMAT, js_runtimes={'node': {}})
-    try:
-        with yt_dlp.YoutubeDL(options) as client:
-            info = client.extract_info('https://www.youtube.com/watch?v=' + video, download=False)
-    except yt_dlp.utils.DownloadError:
-        raise RuntimeError('YouTube could not provide this audio. It may be unavailable, region/age restricted, or require sign-in. Try another recording.') from None
+    info = _extract(options, video, False, 'YouTube could not provide this audio. It may be unavailable, region/age restricted, or require sign-in. Try another recording.')
     stream = info.get('url', '')
     parsed = urllib.parse.urlsplit(stream)
     if info.get('has_drm') or parsed.scheme != 'https' or not (parsed.hostname or '').endswith('.googlevideo.com'):
@@ -227,11 +265,7 @@ def download_audio(track, folder, progress=None, max_bytes=None):
         options['progress_hooks'] = hooks
     if max_bytes:
         options['max_filesize'] = int(max_bytes)
-    try:
-        with yt_dlp.YoutubeDL(options) as client:
-            info = client.extract_info('https://www.youtube.com/watch?v=' + video, download=True)
-    except yt_dlp.utils.DownloadError:
-        raise RuntimeError('YouTube could not provide this audio for download. It may be unavailable, region/age restricted, or require sign-in.') from None
+    info = _extract(options, video, True, 'YouTube could not provide this audio for download. It may be unavailable, region/age restricted, or require sign-in.')
     if not isinstance(info, dict):
         raise RuntimeError('YouTube returned an invalid audio result.')
     if info.get('has_drm'):

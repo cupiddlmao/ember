@@ -1,9 +1,11 @@
 import unittest
 import tempfile
 from pathlib import Path
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import yt_dlp
+from yt_dlp.cookies import CookieLoadError
 
 from music import AUDIO_FORMAT, _ytdlp_options, cached_playlist, download_audio, music_link, normalize, resolve, search
 
@@ -155,6 +157,83 @@ class MusicTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 download_audio(uri, folder.name, max_bytes=1024)
         self.assertEqual(list(Path(folder.name).iterdir()), [])
+
+    def test_a_gated_recording_streams_its_muxed_format_instead_of_an_hls_manifest(self):
+        # resolve() accepts manifest.googlevideo.com as a stream host, so an
+        # audio-only HLS manifest chosen here reaches the player and only fails
+        # once playback starts, instead of streaming the muxed format it can play.
+        selector = yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}).build_format_selector(AUDIO_FORMAT)
+
+        def pick(*formats):
+            return [f['format_id'] for f in selector({
+                'formats': list(formats), 'incomplete_formats': True, 'has_merged_format': True,
+            })]
+
+        hls_audio = {'format_id': '140-1', 'acodec': 'mp4a.40.2', 'vcodec': 'none', 'protocol': 'm3u8_native'}
+        muxed = {'format_id': '18', 'acodec': 'mp4a.40.2', 'vcodec': 'avc1.42001E', 'protocol': 'https'}
+        self.assertEqual(pick(hls_audio, muxed), ['18'])
+        self.assertEqual(pick(hls_audio), [])
+
+    def test_a_live_recording_with_text_in_place_of_a_duration_stays_in_the_results(self):
+        # A live recording has no length; ytmusicapi writes "LIVE" where the
+        # duration text would be. Parsing that as a number raised and the whole
+        # recording was counted unavailable and dropped.
+        live = {'videoId': 'dm4tkSNKfFI', 'title': 'Live at the Bowl', 'artists': [{'name': 'Tycho'}],
+                'duration': 'LIVE', 'duration_seconds': None}
+        self.assertEqual(normalize(live)['duration_ms'], 0)
+        api = MagicMock()
+        api.get_playlist.return_value = {'title': 'Night Drive', 'tracks': [live, {'videoId': 'Ux_ZYXUemTU', 'title': 'Encore'}]}
+        with patch('music.YTMusic', return_value=api):
+            result = search('https://music.youtube.com/playlist?list=PL1234567890')
+        self.assertEqual([track['name'] for track in result['tracks']], ['Live at the Bowl', 'Encore'])
+        self.assertEqual(result['unavailable'], 0)
+
+    def test_an_unusable_cookie_file_is_a_classified_failure(self):
+        # yt-dlp re-raises CookieLoadError out of extraction instead of wrapping
+        # it in DownloadError, so catching DownloadError alone let it reach the
+        # caller as a crash the bridge cannot describe.
+        class BrokenCookies:
+            def __init__(self, _options): pass
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def extract_info(self, *_args, **_kwargs):
+                raise CookieLoadError('failed to load cookies')
+        with patch('music.yt_dlp.YoutubeDL', BrokenCookies):
+            with self.assertRaises(RuntimeError):
+                resolve({'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'})
+
+    def test_a_cookie_file_the_service_cannot_rewrite_does_not_discard_audio(self):
+        # yt-dlp rewrites the cookies file when the session closes, so a
+        # root-owned deployment path raised PermissionError after a stream had
+        # already resolved, and the caller threw away playable audio.
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+
+        class ReadOnlyCookies:
+            def __init__(self, options): self.options = options
+            def __enter__(self): return self
+            def __exit__(self, *_):
+                raise PermissionError(13, 'Permission denied', str(self.options.get('cookiefile')))
+            def extract_info(self, _url, download=False):
+                info = {'id': 'dm4tkSNKfFI', 'title': 'Awake', 'duration': 284, 'has_drm': False}
+                if download:
+                    Path(self.options['outtmpl'].replace('%(ext)s', 'webm')).write_bytes(b'x' * 2048)
+                else:
+                    info['url'] = 'https://audio.googlevideo.com/music'
+                return info
+
+        uri = {'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'}
+        with patch('music.yt_dlp.YoutubeDL', ReadOnlyCookies):
+            track, stream = resolve(uri)
+            self.assertEqual((track['name'], stream), ('Awake', 'https://audio.googlevideo.com/music'))
+            self.assertEqual(download_audio(uri, folder.name)[1].suffix, '.webm')
+
+        class UnreadableCookies(ReadOnlyCookies):
+            def extract_info(self, *_args, **_kwargs):
+                raise PermissionError(13, 'Permission denied')
+        with patch('music.yt_dlp.YoutubeDL', UnreadableCookies):
+            with self.assertRaises(RuntimeError):
+                resolve(uri)
 
     def test_stream_host_and_drm_boundary(self):
         client = MagicMock()
