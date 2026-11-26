@@ -2,13 +2,20 @@
 import concurrent.futures
 import sqlite3
 import tempfile
+import threading
+import time
 from contextlib import closing
 import unittest
 import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from mobile.backend.library_store import LibraryError, LibraryStore, backup_sqlite_databases
+from mobile.backend.library_store import (
+    LibraryError,
+    LibraryStore,
+    _MIGRATIONS,
+    backup_sqlite_databases,
+)
 
 
 def uid():
@@ -189,6 +196,51 @@ class SchemaUpgradeTests(unittest.TestCase):
             LibraryStore(self.root)
         self.assertEqual(self.version(), 3)
 
+    def test_corrupt_database_is_refused_without_being_replaced(self):
+        """An unreadable file must refuse the same way a newer schema does, not guess."""
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name)
+        payload = b"this is not a database\n" * 16
+        (directory / "playlists.sqlite3").write_bytes(payload)
+        with self.assertRaises(RuntimeError) as error:
+            LibraryStore(directory)
+        self.assertIn("backup", str(error.exception))
+        self.assertEqual((directory / "playlists.sqlite3").read_bytes(), payload)
+
+    def test_two_starts_at_once_both_open_the_library(self):
+        """A worker booting during another's first startup must not fail on its DDL."""
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "library"
+        inside, release = threading.Event(), threading.Event()
+
+        def hold_lock(db):
+            # Hold the upgrade's write lock while the second start reads version 0.
+            inside.set()
+            release.wait(10)
+
+        def boot(outcomes):
+            try:
+                outcomes.append(LibraryStore(root))
+            except Exception as error:  # the failure itself is what this asserts on
+                outcomes.append(error)
+
+        outcomes = []
+        with patch("mobile.backend.library_store._MIGRATIONS", {0: _MIGRATIONS[0] + (hold_lock,)}):
+            first = threading.Thread(target=boot, args=(outcomes,))
+            first.start()
+            self.assertTrue(inside.wait(10))
+            second = threading.Thread(target=boot, args=(outcomes,))
+            second.start()
+            time.sleep(0.5)  # the second start has read version 0 and is queued for the lock
+            release.set()
+            first.join(20)
+            second.join(20)
+        self.assertEqual([str(item) for item in outcomes if isinstance(item, Exception)], [])
+        self.assertEqual(len(outcomes), 2)
+        self.assertEqual(outcomes[0].list(), {"playlists": []})
+
     def test_missing_step_newer_and_unversioned_databases_are_refused(self):
         with patch("mobile.backend.library_store.SCHEMA_VERSION", 2), \
                 patch("mobile.backend.library_store._MIGRATIONS", {}):
@@ -206,6 +258,39 @@ class SchemaUpgradeTests(unittest.TestCase):
 
 
 class LibraryBackupTests(unittest.TestCase):
+    def test_failed_backup_set_leaves_no_partial_restore(self):
+        """A half-copied set restores as complete and silently drops the Last.fm session."""
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "library"
+        LibraryStore(root)
+        with closing(sqlite3.connect(root / "lastfm.sqlite3")) as db, db:
+            db.execute("CREATE TABLE account (id INTEGER PRIMARY KEY, session TEXT)")
+        # The playlist database fails to copy after lastfm.sqlite3 was already written.
+        (root / "playlists.sqlite3").write_bytes(b"not a database\n" * 64)
+        destination = root / "backups" / "2026-11-26"
+        with self.assertRaises(sqlite3.DatabaseError):
+            backup_sqlite_databases(root, destination)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_failed_backup_leaves_no_partial_file_and_can_be_retried(self):
+        """A copy that fails must not leave an empty file that reads as a valid library."""
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "library"
+        store = LibraryStore(root)
+        # A torn or corrupt source fails the copy after the destination already exists.
+        (root / "playlists.sqlite3").write_bytes(b"not a database\n" * 64)
+        destination = root / "backups" / "playlists.sqlite3"
+        destination.parent.mkdir()
+        with self.assertRaises(sqlite3.DatabaseError):
+            store.backup(destination)
+        self.assertFalse(destination.exists())
+        # The retry must fail for the source's reason, not because of our own debris.
+        with self.assertRaises(sqlite3.DatabaseError):
+            store.backup(destination)
+        self.assertFalse(destination.exists())
+
     def test_backup_covers_every_database_in_the_library(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
