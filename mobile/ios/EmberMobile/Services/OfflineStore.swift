@@ -191,6 +191,26 @@ final class OfflineStore: ObservableObject {
         downloadTask = nil
     }
 
+    /// A failure that belongs to one recording rather than to the server or the
+    /// network: YouTube declined the audio - age-restricted, sign-in-gated or
+    /// removed - or it came back unusable. A playlist download skips these and
+    /// keeps going; anything else stops the run, because every later track
+    /// would fail the same way.
+    static func isTrackFailure(_ error: APIError) -> Bool {
+        switch error {
+        case .fileTooLarge, .invalidResponse, .server(404, _, _):
+            return true
+        case .server(_, _, let code):
+            // The server reports "YouTube would not serve this recording" as
+            // upstream_error. A gateway error without that code has no track
+            // behind it - the server itself is unreachable or overloaded - so
+            // it must still stop the run.
+            return code == "upstream_error"
+        default:
+            return false
+        }
+    }
+
     private func runDownload(
         playlistID: String,
         tracks: [Track],
@@ -238,13 +258,11 @@ final class OfflineStore: ObservableObject {
                         if Task.isCancelled { break }
                         continue
                     }
-                    // One unavailable recording must not block the playlist:
-                    // skip it and keep downloading the rest. Only server-wide
-                    // failures stop the run.
-                    switch error {
-                    case .fileTooLarge, .invalidResponse, .server(404, _, _):
+                    if Self.isTrackFailure(error) {
+                        // One recording YouTube will not serve must not block the
+                        // playlist: skip it and keep downloading the rest.
                         unavailable += 1
-                    default:
+                    } else {
                         lastError = error
                     }
                     break

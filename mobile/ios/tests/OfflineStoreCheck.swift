@@ -118,6 +118,24 @@ struct OfflineStoreCheck {
         assert(!manager.fileExists(atPath: directory.appendingPathComponent("dQw4w9WgXcQ.m4a").path))
         assert(store.bytesUsed() == 0)
         assert(OfflineStore.byteText(4096).contains("4"))
+
+        // A recording YouTube refuses is skipped, so one age-restricted or
+        // sign-in-gated track cannot abort a whole playlist download. The
+        // server reports that refusal as 502 upstream_error.
+        assert(OfflineStore.isTrackFailure(
+            .server(502, "YouTube could not provide this audio.", "upstream_error")
+        ), "a refused recording is skipped")
+        assert(OfflineStore.isTrackFailure(.server(404, nil, nil)))
+        assert(OfflineStore.isTrackFailure(.fileTooLarge))
+        assert(OfflineStore.isTrackFailure(.invalidResponse))
+
+        // Server-wide failures still stop the run: a bare gateway error, an
+        // overloaded server, a rejected key, or a dropped connection.
+        assert(!OfflineStore.isTrackFailure(.server(502, nil, nil)))
+        assert(!OfflineStore.isTrackFailure(.server(503, nil, nil)))
+        assert(!OfflineStore.isTrackFailure(.unauthorized))
+        assert(!OfflineStore.isTrackFailure(.transport("No network connection.")))
+
         print("Offline store checks passed")
     }
 }
