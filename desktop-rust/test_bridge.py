@@ -3,6 +3,7 @@ import json
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 from bridge import (
     MAX_LYRIC_LINES,
@@ -15,6 +16,7 @@ from bridge import (
     fail,
     lyrics_for,
     normalize_lyrics_payload,
+    playable_audio,
     request_track,
     slim_track,
     stream_url,
@@ -296,6 +298,46 @@ class CsvImportTests(unittest.TestCase):
         self.assertFalse(envelope["ok"])
         self.assertEqual(envelope["error"]["code"], "invalid_input")
         self.assertNotIn("https://", envelope["error"]["message"])
+
+
+class PlayableAudioTests(unittest.TestCase):
+    """A first play must not hand YouTube's address-bound stream URL to the player."""
+
+    def setUp(self):
+        self.downloads = []
+
+    def resolve_with(self, lookups, enabled, error=None):
+        queue = list(lookups)
+
+        def fake_cached_audio(_track):
+            return queue.pop(0) if queue else None
+
+        def fake_cache_action(action, track=None):
+            self.downloads.append(action)
+            if error:
+                raise error
+
+        with patch("bridge.cached_audio", fake_cached_audio), \
+                patch("bridge.cache_enabled", return_value=enabled), \
+                patch("bridge.cache_action", fake_cache_action):
+            return playable_audio(TRACK)
+
+    def test_a_cached_copy_is_played_without_another_download(self):
+        self.assertEqual(self.resolve_with(["file:///audio/a.m4a"], True), "file:///audio/a.m4a")
+        self.assertEqual(self.downloads, [])
+
+    def test_an_uncached_recording_is_fetched_before_the_player_touches_youtube(self):
+        self.assertEqual(self.resolve_with([None, "file:///audio/a.m4a"], True), "file:///audio/a.m4a")
+        self.assertEqual(self.downloads, ["download"])
+
+    def test_a_disabled_cache_streams_the_url_instead(self):
+        self.assertIsNone(self.resolve_with([None], False))
+        self.assertEqual(self.downloads, [])
+
+    def test_a_refused_fetch_falls_back_to_streaming(self):
+        error = RuntimeError("YouTube could not provide this audio for download.")
+        self.assertIsNone(self.resolve_with([None], True, error))
+        self.assertEqual(self.downloads, ["download"])
 
 
 if __name__ == "__main__":
