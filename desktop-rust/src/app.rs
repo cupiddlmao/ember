@@ -2459,9 +2459,14 @@ impl AppUi {
             PlayerEventKind::Eos => self.handle_eos(),
             PlayerEventKind::Error => {
                 if self.playback.stream_loaded() || self.playback.is_preparing() {
-                    self.fail_playback(
-                        "Playback failed. Check the GStreamer base/good/soup plugins and try another recording.",
-                    );
+                    // A local copy that will not play is a GStreamer problem. A stream
+                    // URL that never started is YouTube refusing the request, and
+                    // naming the plugins there points at the wrong machine.
+                    self.fail_playback(if self.cached_playback.is_some() {
+                        "Playback failed. Check the GStreamer base/good/soup plugins and try another recording."
+                    } else {
+                        "Playback failed. YouTube would not serve this recording; try another one."
+                    });
                 }
             }
         }
