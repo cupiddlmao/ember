@@ -22,7 +22,14 @@ from .config import Settings
 from .lastfm_service import LastFM
 from .library_store import LibraryError, LibraryStore
 from .lyrics_service import LyricsError, LyricsService
-from .music_service import MusicService, UpstreamError
+from .music_service import (
+    SIGNIN_MISSING,
+    SIGNIN_NOT_CONFIGURED,
+    MusicService,
+    SignInBrokenError,
+    UpstreamError,
+    youtube_signin_state,
+)
 from .playlist_service import PlaylistInputError, PlaylistService
 
 VERSION = "0.4.0"
@@ -53,6 +60,42 @@ MAX_LIBRARY_BODY = 8 * 1024 * 1024
 
 logger = logging.getLogger("ember.api")
 logger.addHandler(logging.NullHandler())
+
+# Health is polled, so the cookie file is read at most once a minute per
+# identity. The key includes mtime/size/inode, so replacing the export is seen
+# immediately; the TTL only avoids re-reading an unchanged file.
+SIGNIN_CACHE_TTL = 60.0
+_signin_cache: dict[tuple, tuple[float, str]] = {}
+_signin_cache_lock = threading.Lock()
+
+
+def _cached_signin_state() -> str:
+    """The saved-cookie state for /v1/health, derived from a local file only.
+
+    A usable file proves the cookies are present and unexpired, not that
+    YouTube still accepts them; proving that would need a network probe on
+    every poll, which a health check must not do.
+    """
+    configured = os.environ.get("EMBER_YOUTUBE_COOKIES", "").strip()
+    if not configured:
+        return SIGNIN_NOT_CONFIGURED
+    try:
+        info = os.stat(configured)
+    except OSError:
+        return SIGNIN_MISSING
+    key = (configured, info.st_mtime_ns, info.st_size, info.st_ino)
+    now = time.monotonic()
+    with _signin_cache_lock:
+        cached = _signin_cache.get(key)
+        if cached is not None and now - cached[0] < SIGNIN_CACHE_TTL:
+            return cached[1]
+    state = youtube_signin_state(configured)
+    with _signin_cache_lock:
+        # Only repeated file swaps grow this map; keep the newest handful.
+        if len(_signin_cache) >= 8:
+            _signin_cache.clear()
+        _signin_cache[key] = (now, state)
+    return state
 
 
 def _reject_json_constant(_value):
@@ -274,7 +317,12 @@ class ApiHandler(BaseHTTPRequestHandler):
         if route_path == "/v1/health":
             self._send_json(
                 HTTPStatus.OK,
-                {"status": "ok", "version": VERSION, "commit": build_commit()},
+                {
+                    "status": "ok",
+                    "version": VERSION,
+                    "commit": build_commit(),
+                    "youtube_signin": _cached_signin_state(),
+                },
             )
             return HTTPStatus.OK
 
@@ -423,6 +471,11 @@ class ApiHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._send_error(HTTPStatus.BAD_REQUEST, "invalid_track", "Invalid track ID.")
             return HTTPStatus.BAD_REQUEST
+        except SignInBrokenError as error:
+            # A distinct code lets the phone stop and name the broken sign-in
+            # instead of silently counting every gated track as unavailable.
+            self._send_error(HTTPStatus.BAD_GATEWAY, "signin_broken", str(error))
+            return HTTPStatus.BAD_GATEWAY
         except UpstreamError as error:
             self._send_error(HTTPStatus.BAD_GATEWAY, "upstream_error", str(error))
             return HTTPStatus.BAD_GATEWAY

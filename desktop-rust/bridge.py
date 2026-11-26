@@ -214,6 +214,28 @@ def slim_track(item: object) -> dict:
     return result
 
 
+def signin_refusal_message(detail: str) -> str | None:
+    """A refusal explained by unusable saved sign-in, or None.
+
+    The desktop app has no health endpoint, so a refused stream is the only
+    place the saved-cookie state can be named. Imported lazily because a
+    checkout without the mobile backend must still stream public recordings.
+    """
+    try:
+        from mobile.backend.music_service import SIGNIN_BROKEN_MESSAGE, refusal_is_signin
+    except ImportError:
+        # The bridge runs from desktop-rust; in a bare test run the checkout
+        # root is the sibling of this file rather than the process directory.
+        root = str(Path(__file__).resolve().parents[1])
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        try:
+            from mobile.backend.music_service import SIGNIN_BROKEN_MESSAGE, refusal_is_signin
+        except ImportError:
+            return None
+    return SIGNIN_BROKEN_MESSAGE if refusal_is_signin(detail) else None
+
+
 def stream_url(value: object) -> str:
     if not isinstance(value, str) or len(value) > 4096:
         raise RuntimeError("YouTube returned an unsupported audio stream.")
@@ -614,8 +636,17 @@ def run(real_stdout) -> None:
     if local:
         emit(real_stdout, {"ok": True, "data": {"track": slim_track(track), "stream_url": local}})
         return
-    with contextlib.redirect_stdout(sys.stderr):
-        resolved_track, url = music.resolve(track)
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            resolved_track, url = music.resolve(track)
+    except RuntimeError as error:
+        # Keep the existing "unavailable" code so the app's branches do not
+        # change; only the message distinguishes broken sign-in.
+        message = signin_refusal_message(str(error))
+        if message:
+            fail(real_stdout, "unavailable", message)
+            return
+        raise
     if not isinstance(resolved_track, dict):
         raise RuntimeError("YouTube returned invalid recording metadata.")
     slimmed = slim_track(resolved_track)
