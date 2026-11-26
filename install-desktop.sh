@@ -22,7 +22,13 @@ icon_svg="$root/packaging/ember.svg"
 icon_fallback="$root/mobile/ios/EmberMobile/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
 icon_name="io.ember.Player"
 
-cargo build --release --manifest-path desktop-rust/Cargo.toml
+# EMBER_INSTALL_SKIP_BUILD exists for test_desktop_installer.py, which runs
+# this script against a throwaway HOME to check what it writes. Building Rust
+# inside a test would cost more than the assertion is worth; nothing else may
+# set it, because an unbuilt binary is an installed launcher that cannot start.
+if [ "${EMBER_INSTALL_SKIP_BUILD:-0}" != "1" ]; then
+    cargo build --release --manifest-path desktop-rust/Cargo.toml
+fi
 
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
 
@@ -76,9 +82,16 @@ chmod 644 "$desktop"
 # release cycle.
 theme_dir="$HOME/.local/share/icons/hicolor"
 render="$(command -v rsvg-convert || command -v magick || true)"
+
+# The scalable icon is what the entry's Icon= name resolves to, so it goes in
+# whether or not this machine can also produce PNG sizes. Installing PNGs only
+# is how the entry fell back to the generic player glyph on a host with no
+# rasteriser: the name matched nothing, and freedesktop lookup then reached past
+# this theme into the desktop's.
+mkdir -p "$theme_dir/scalable/apps"
+cp "$icon_svg" "$theme_dir/scalable/apps/$icon_name.svg"
+
 if [ -n "$render" ]; then
-  mkdir -p "$theme_dir/scalable/apps"
-  cp "$icon_svg" "$theme_dir/scalable/apps/$icon_name.svg"
   for size in 16 24 32 48 64 128 256 512; do
     target="$theme_dir/${size}x${size}/apps"
     mkdir -p "$target"
@@ -89,14 +102,15 @@ if [ -n "$render" ]; then
     esac
   done
 elif [ -f "$icon_fallback" ] && command -v convert >/dev/null; then
-  # No SVG rasteriser here: the tiled iOS asset beats no icon at all.
+  # PNG sizes for themes that ignore scalable icons: the tiled iOS asset beats
+  # no icon at all.
   for size in 16 24 32 48 64 128 256 512; do
     target="$theme_dir/${size}x${size}/apps"
     mkdir -p "$target"
     convert "$icon_fallback" -background none -resize "${size}x${size}" "$target/$icon_name.png"
   done
 else
-  printf 'Ember: no SVG rasteriser and no fallback icon; leaving the icon alone.\n' >&2
+  printf 'Ember: no PNG rasteriser; installed the scalable icon only.\n' >&2
 fi
 
 # The user theme needs the system index before it can be cached; without it
