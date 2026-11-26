@@ -1,0 +1,15 @@
+# Copy this file to docker-compose.override.yml on the VM that holds the
+# YouTube cookies, then run `docker compose -p ember-mobile up -d`.
+#
+# Compose merges docker-compose.override.yml into docker-compose.yml on every
+# invocation, so the mount lives here instead of in a tracked file. Editing
+# docker-compose.yml in place leaves an uncommitted change behind that makes
+# the next `git merge` of a deploy fail with "local changes would be
+# overwritten", and it gets discarded without anyone noticing the mount
+# disappeared with it.
+services:
+  api:
+    volumes:
+      # yt-dlp writes the refreshed jar back, so this must not be :ro.
+      # Set EMBER_YOUTUBE_COOKIES=/var/lib/ember/cookies.txt in .env to match.
+      - ./cookies.txt:/var/lib/ember/cookies.txt

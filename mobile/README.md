@@ -132,9 +132,12 @@ unavailable. To unlock them, give the server a cookies file:
    as a Netscape `cookies.txt` (any reputable "get cookies.txt" extension).
 2. Copy it to the VM next to `docker-compose.yml` as `cookies.txt`, mode 0600,
    owned by the Compose user.
-3. Uncomment the `./cookies.txt:/var/lib/ember/cookies.txt` volume line (yt-dlp refreshes the jar in place, so it must be writable) and
-   set `EMBER_YOUTUBE_COOKIES=/var/lib/ember/cookies.txt` in
-   `mobile/backend/.env`, then `docker compose -p ember-mobile up -d`.
+3. Copy `docker-compose.override.example.yml` to `docker-compose.override.yml`
+   (Compose merges it automatically, so `docker-compose.yml` stays untouched
+   and the deploy can still fast-forward), set
+   `EMBER_YOUTUBE_COOKIES=/var/lib/ember/cookies.txt` in
+   `mobile/backend/.env`, then `docker compose -p ember-mobile up -d`. The
+   mount must be writable: yt-dlp refreshes the jar in place.
 
 The cookies carry the account's YouTube access, so keep the file private to
 the VM and re-export it when it expires (YouTube rotates sessions; a stale
