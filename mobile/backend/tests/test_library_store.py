@@ -2,6 +2,7 @@
 import concurrent.futures
 import sqlite3
 import tempfile
+from contextlib import closing
 import unittest
 import uuid
 from pathlib import Path
@@ -126,7 +127,9 @@ class LibraryTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.store.backup(destination)
         import sqlite3
-        with sqlite3.connect(destination) as db:
+        # ``with sqlite3.connect(...)`` only wraps a transaction; the handle
+        # itself is left open, and on Windows that keeps the file locked.
+        with closing(sqlite3.connect(destination)) as db, db:
             db.execute("PRAGMA user_version=99")
         with self.assertRaises(RuntimeError):
             LibraryStore(backup_dir)
@@ -145,7 +148,7 @@ class SchemaUpgradeTests(unittest.TestCase):
                                           "name": "GG", "entries": [entry()]})
 
     def version(self, path=None):
-        with sqlite3.connect(path or self.root / "playlists.sqlite3") as db:
+        with closing(sqlite3.connect(path or self.root / "playlists.sqlite3")) as db:
             return db.execute("PRAGMA user_version").fetchone()[0]
 
     def test_upgrade_applies_ordered_steps_and_keeps_a_pre_upgrade_backup(self):
@@ -162,7 +165,7 @@ class SchemaUpgradeTests(unittest.TestCase):
             self.assertEqual(self.version(backups[0]), 1)
             LibraryStore(self.root)
             self.assertEqual(len(list(self.root.glob("playlists.v*.backup"))), 1)
-        with sqlite3.connect(self.root / "playlists.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "playlists.sqlite3")) as db:
             self.assertIn("notes", [row[1] for row in db.execute("PRAGMA table_info(playlists)")])
             self.assertIn("radio_seeds", [row[0] for row in db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")])
@@ -176,7 +179,7 @@ class SchemaUpgradeTests(unittest.TestCase):
         self.assertIn("version 2 to version 3", str(error.exception))
         self.assertEqual(self.version(), 2)
         self.assertEqual(self.store.get(self.id)["trackCount"], 1)
-        with sqlite3.connect(self.root / "playlists.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "playlists.sqlite3")) as db:
             tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
         self.assertIn("good", tables)
         self.assertNotIn("bad", tables)
@@ -196,7 +199,7 @@ class SchemaUpgradeTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         stranger = Path(temporary.name)
-        with sqlite3.connect(stranger / "playlists.sqlite3") as db:
+        with closing(sqlite3.connect(stranger / "playlists.sqlite3")) as db, db:
             db.execute("CREATE TABLE mystery (x)")
         with self.assertRaises(RuntimeError):
             LibraryStore(stranger)
@@ -211,7 +214,7 @@ class LibraryBackupTests(unittest.TestCase):
         playlist_id = uid()
         store.mutate("POST", None, {"id": playlist_id, "requestId": uid(),
                                      "name": "GG", "entries": [entry()]})
-        with sqlite3.connect(root / "lastfm.sqlite3") as db:
+        with closing(sqlite3.connect(root / "lastfm.sqlite3")) as db, db:
             db.execute("CREATE TABLE account (id INTEGER PRIMARY KEY, session TEXT)")
             db.execute("INSERT INTO account VALUES (1, 'session-key')")
         (root / "playlists.v0.example.backup").write_text("not a database")
@@ -219,7 +222,7 @@ class LibraryBackupTests(unittest.TestCase):
         written = backup_sqlite_databases(root, destination)
         self.assertEqual(sorted(path.name for path in written),
                          ["lastfm.sqlite3", "playlists.sqlite3"])
-        with sqlite3.connect(destination / "lastfm.sqlite3") as db:
+        with closing(sqlite3.connect(destination / "lastfm.sqlite3")) as db:
             self.assertEqual(db.execute("SELECT session FROM account").fetchone()[0], "session-key")
         self.assertEqual(LibraryStore(destination).get(playlist_id)["trackCount"], 1)
         with self.assertRaises(FileExistsError):

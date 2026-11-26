@@ -99,6 +99,10 @@ def request_json(server, key, method, path, body=None):
             raw = error.read(MAX_ERROR_BYTES + 1)
         except OSError:
             pass
+        finally:
+            # The error object owns the response socket; leaving it open
+            # keeps a connection alive until the collector runs.
+            error.close()
         code = message = ""
         try:
             payload = json.loads(raw[:MAX_ERROR_BYTES])

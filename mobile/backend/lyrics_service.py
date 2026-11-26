@@ -268,6 +268,10 @@ class LyricsService:
                     raise LyricsError("The lyrics service returned an unexpected response.")
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as error:
+            # An HTTP status error is also an open response object, so it holds a
+            # socket until the collector reaches it; every branch below leaves
+            # this frame, so release it here rather than on the way out.
+            error.close()
             if error.code == 404:
                 return None
             if error.code == 429:
