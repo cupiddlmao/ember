@@ -54,6 +54,12 @@ def invalid(message="Invalid playlist request."):
     return LibraryError(400, "invalid_library", message)
 
 
+def newer_schema_error():
+    """A database written by a newer Ember must be left exactly as it is."""
+    return RuntimeError(
+        "This playlist database was created by a newer Ember; upgrade the server instead.")
+
+
 def identifier(value):
     try:
         if not isinstance(value, str) or str(uuid.UUID(value)) != value:
@@ -142,6 +148,10 @@ def backup_sqlite_databases(directory: Path, destination: Path) -> list[Path]:
                 source.backup(target)
         except Exception:
             target_path.unlink(missing_ok=True)
+            # A partial set looks complete to whoever restores it: the Last.fm session and
+            # its outbox would be missing with nothing to show the copy was incomplete.
+            for path in written:
+                path.unlink(missing_ok=True)
             raise
         written.append(target_path)
     return written
@@ -170,10 +180,20 @@ class LibraryStore:
         with no declared step is refused rather than altered. The first upgrade takes a
         consistent backup next to the database before it changes anything.
         """
-        version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > SCHEMA_VERSION:
+        try:
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+        except sqlite3.OperationalError:
+            # Busy or locked says nothing about the file itself; let the caller retry.
+            raise
+        except sqlite3.DatabaseError as error:
+            # A file that is not SQLite used to surface as a bare sqlite3 error with no
+            # recovery path, while every other damaged database is refused with guidance.
             raise RuntimeError(
-                "This playlist database was created by a newer Ember; upgrade the server instead.")
+                "The playlist database cannot be read as SQLite, so it is corrupt or was only "
+                "partly copied. Restore a backup, or delete playlists.sqlite3 to start an empty "
+                "library.") from error
+        if version > SCHEMA_VERSION:
+            raise newer_schema_error()
         if version == 0 and db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone():
             raise RuntimeError("Unrecognized playlist database; refusing to alter it.")
         backup = None
@@ -186,6 +206,14 @@ class LibraryStore:
             backup = backup or (self._pre_upgrade_backup(version) if version else None)
             db.execute("BEGIN IMMEDIATE")
             try:
+                # Another process may have applied this step while we waited for the write
+                # lock; replaying its CREATE TABLE would abort a perfectly healthy startup.
+                # Adopt the version it committed instead of redoing the work.
+                adopted = db.execute("PRAGMA user_version").fetchone()[0]
+                if adopted != version:
+                    db.execute("ROLLBACK")
+                    version = adopted
+                    continue
                 for step in steps:
                     if callable(step):
                         step(db)
@@ -204,6 +232,9 @@ class LibraryStore:
                     f"failed and was rolled back{kept}."
                 ) from error
             version += 1
+        if version > SCHEMA_VERSION:
+            # A newer Ember finished upgrading while this process waited for the lock.
+            raise newer_schema_error()
 
     def _pre_upgrade_backup(self, version):
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
@@ -310,5 +341,12 @@ class LibraryStore:
         destination = Path(destination)
         fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
-        with closing(self._connect()) as source, closing(sqlite3.connect(destination)) as target:
-            source.backup(target)
+        try:
+            with closing(self._connect()) as source, \
+                    closing(sqlite3.connect(destination)) as target:
+                source.backup(target)
+        except Exception:
+            # The file we just created is empty or half written. Keeping it would make a
+            # later restore look like an empty library, and O_EXCL would refuse the retry.
+            destination.unlink(missing_ok=True)
+            raise
