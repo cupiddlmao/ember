@@ -24,8 +24,8 @@ services:
     volumes:
       - audio-cache:/var/lib/ember/cache
       - playlist-library:/var/lib/ember/library
-      # Uncomment and place the file next to docker-compose.yml to enable:
-      # - ./cookies.txt:/var/lib/ember/cookies.txt
+      # Mounted by docker-compose.override.yml when sign-in cookies are in use;
+      # see docker-compose.override.example.yml.
     healthcheck:
       test:
         - CMD

@@ -29,6 +29,9 @@ audio/
 !**/.env.example
 !mobile/backend/.env.example
 mobile/backend/.env
+# Host-local Compose additions (the cookies mount lives here, not in git)
+mobile/backend/docker-compose.override.yml
+!mobile/backend/docker-compose.override.example.yml
 # YouTube sign-in cookies placed here for the container's bind mount
 mobile/backend/cookies.txt
 mobile/backend/.venv/
