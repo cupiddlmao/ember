@@ -12,7 +12,7 @@ bash run.sh
 
 `run.sh` creates `.venv` with uv, installs the Python bridge dependencies, builds `desktop-rust` in release mode and launches it. Re-running it rebuilds incrementally and launches the current source. See [desktop-rust/README.md](desktop-rust/README.md) for requirements, layout and limitations.
 
-The desktop client provides public YouTube Music search, artwork, a persistent queue with independent duplicate occurrences, synchronized LRCLIB lyrics, a bounded automatic audio cache and Ember-owned playlist sync through the mobile backend. It uses the checkout's Python core only for catalog search, stream resolution, audio downloads and lyrics; no Google account is used.
+The desktop client provides public YouTube Music search, artwork, a persistent queue with independent duplicate occurrences, synchronized LRCLIB lyrics, a bounded automatic audio cache and Ember-owned playlist sync through the mobile backend. It uses the checkout's Python core only for catalog search, stream resolution, audio downloads and lyrics. Public recordings need no account. If `~/.config/ember/cookies.txt` exists — or `EMBER_YOUTUBE_COOKIES` names another file — the desktop hands those exported YouTube cookies to yt-dlp, which is what lets the recordings the account can see (age-restricted ones, mostly) resolve here the way they do on the server.
 
 ## Layout
 
