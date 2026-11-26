@@ -17,9 +17,9 @@ use std::path::Path;
 const THEME_NAME: &str = "Ember";
 const INDEX_THEME: &str = r##"[Icon Theme]
 Name=Ember
-Comment=Ember bundled symbolic icons
+Comment=Ember bundled icons
 Inherits=Adwaita,hicolor
-Directories=scalable/actions
+Directories=scalable/actions,scalable/apps
 
 [scalable/actions]
 Size=16
@@ -27,6 +27,13 @@ MinSize=8
 MaxSize=512
 Type=Scalable
 Context=Actions
+
+[scalable/apps]
+Size=128
+MinSize=16
+MaxSize=512
+Type=Scalable
+Context=Applications
 "##;
 
 const ICONS: &[(&str, &str)] = &[
@@ -122,6 +129,14 @@ const ICONS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The product's own mark, in full colour. It is deliberately not named
+/// `*-symbolic`: GTK recolors symbolic icons to the surrounding text colour,
+/// which would flatten the brand to one tone, and the sidebar accent would
+/// then be the only thing left of the logo. This is the same file
+/// install-desktop.sh puts in the hicolor theme, so the taskbar icon and the
+/// icon inside the window cannot drift apart.
+const APP_ICONS: &[(&str, &str)] = &[("ember-mark", include_str!("../../packaging/ember.svg"))];
+
 /// Prepares the icon theme and selects it for this GTK display only.
 pub fn install(display: &gdk::Display) {
     let root = gtk4::glib::user_cache_dir().join("ember-player/icons");
@@ -149,10 +164,15 @@ pub fn install(display: &gdk::Display) {
 fn materialize(root: &Path) -> std::io::Result<()> {
     let theme = root.join(THEME_NAME);
     let actions = theme.join("scalable/actions");
+    let apps = theme.join("scalable/apps");
     fs::create_dir_all(&actions)?;
+    fs::create_dir_all(&apps)?;
     fs::write(theme.join("index.theme"), INDEX_THEME)?;
     for (name, svg) in ICONS {
         fs::write(actions.join(format!("{name}.svg")), svg)?;
+    }
+    for (name, svg) in APP_ICONS {
+        fs::write(apps.join(format!("{name}.svg")), svg)?;
     }
     Ok(())
 }
@@ -196,9 +216,56 @@ mod tests {
         let temp = tempfile::tempdir().expect("temporary icon directory");
         materialize(temp.path()).expect("write bundled icon theme");
         let actions = temp.path().join(THEME_NAME).join("scalable/actions");
+        let apps = temp.path().join(THEME_NAME).join("scalable/apps");
         assert!(temp.path().join(THEME_NAME).join("index.theme").is_file());
         for (name, _) in ICONS {
             assert!(actions.join(format!("{name}.svg")).is_file(), "{name}");
+        }
+        for (name, _) in APP_ICONS {
+            assert!(apps.join(format!("{name}.svg")).is_file(), "{name}");
+        }
+    }
+
+    /// An icon directory GTK does not list in index.theme is written to disk
+    /// and then never found, which looks like a missing file rather than a
+    /// theme problem.
+    #[test]
+    fn every_materialized_directory_is_declared_in_the_theme_index() {
+        for (name, _) in ICONS {
+            assert!(name.ends_with("-symbolic"), "actions icons are symbolic: {name}");
+        }
+        for (name, _) in APP_ICONS {
+            assert!(!name.ends_with("-symbolic"), "the brand mark is full colour: {name}");
+        }
+        assert!(INDEX_THEME.contains("Directories=scalable/actions,scalable/apps"));
+        assert!(INDEX_THEME.contains("[scalable/apps]"));
+    }
+
+    /// Comments talk about the renderer, so strip them before asking what the
+    /// document paints with; a note mentioning strokes is not a stroke.
+    fn markup(svg: &str) -> String {
+        let mut out = String::with_capacity(svg.len());
+        let mut rest = svg;
+        while let Some(start) = rest.find("<!--") {
+            out.push_str(&rest[..start]);
+            let Some(end) = rest[start..].find("-->") else { return out };
+            rest = &rest[start + end + 3..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    #[test]
+    fn app_icons_are_self_contained_documents() {
+        for (name, svg) in APP_ICONS {
+            let markup = markup(svg);
+            assert!(markup.starts_with("<?xml"), "app icon is not a document: {name}");
+            assert!(markup.contains("viewBox"), "app icon has no view box: {name}");
+            assert!(!markup.contains("stroke"), "app icon relies on strokes: {name}");
+            assert!(
+                !markup.contains("<linearGradient") && !markup.contains("url(#"),
+                "app icon relies on a gradient the bundled renderer may drop: {name}"
+            );
         }
     }
 }

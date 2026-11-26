@@ -104,6 +104,12 @@ fn activate(application: &gtk4::Application) {
     if let Some(display) = gdk::Display::default() {
         crate::icons::install(&display);
     }
+    // The taskbar asks the desktop entry for an icon, but only once something
+    // has installed one under this app's name. Setting the window icon from the
+    // theme the binary carries itself means `bash run.sh` from a bare checkout
+    // shows Ember in the taskbar, not the generic player icon the entry fell
+    // back to.
+    gtk4::Window::set_default_icon_name("ember-mark");
 
     let (default_width, default_height) = crate::viewport::capture_size()
         .unwrap_or((crate::viewport::DEFAULT_WIDTH, crate::viewport::DEFAULT_HEIGHT));
@@ -617,7 +623,7 @@ fn build_sidebar() -> SidebarParts {
 
     let brand_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     brand_row.add_css_class("brand-row");
-    let brand_mark = gtk4::Image::from_icon_name("media-optical-symbolic");
+    let brand_mark = gtk4::Image::from_icon_name("ember-mark");
     brand_mark.set_pixel_size(17);
     brand_mark.add_css_class("brand-mark");
     brand_row.append(&brand_mark);
