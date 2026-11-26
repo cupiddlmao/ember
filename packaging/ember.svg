@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Ember's mark: the same teardrop the iOS asset carries, drawn as a glyph on
-     a transparent field instead of a dark tile, so it sits with the other
-     icons in the taskbar rather than inside its own square. The palette comes
-     from the app's own accent (#ef5367, hover #fa6678 in src/style.css). -->
+<!-- Ember's mark: the teardrop the iOS asset carries, drawn on a transparent
+     field instead of a dark plate, so it sits with the other icons in a taskbar
+     of bare glyphs instead of reading as a square inside a square.
+
+     Filled paths only, no gradient and no stroke. icons.rs documents why: some
+     GTK builds rasterize bundled SVGs with a renderer that honours `fill` but
+     drops everything else, and this file is rendered by that renderer inside
+     the app as well as by librsvg for the desktop entry. The tones are the
+     app's own accent (#ef5367) and the pale ember core. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="ember" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fa6678"/>
-      <stop offset="1" stop-color="#d9417c"/>
-    </linearGradient>
-  </defs>
   <g transform="translate(64 64) scale(1.22) translate(-64 -64)">
-    <path fill="url(#ember)" d="M62.5 18.8
+    <path fill="#ef5367" d="M62.5 18.8
              C 56 33 35.6 54.6 35.6 75
              A 26.9 33 0 0 0 89.4 75
              C 89.4 54.6 69 33 62.5 18.8 Z"/>
