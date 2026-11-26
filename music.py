@@ -16,6 +16,16 @@ class Quiet:
     def error(self, *_): pass
 
 
+# Age-restricted and sign-in-gated recordings come back with no audio-only
+# stream at all: for those, YouTube serves only muxed (video + audio) formats
+# over https, plus HLS manifests the players here cannot stream. A selector
+# that ends at `bestaudio` therefore fails on exactly the tracks the account
+# cookies were added for, with "requested format is not available". The muxed
+# clause comes last, so an ordinary track still resolves to its best audio-only
+# stream and only a recording with nothing audio-only falls back to format 18.
+AUDIO_FORMAT = 'bestaudio[protocol=https]/bestaudio/best[acodec!=none][protocol=https]'
+
+
 def music_link(value):
     parsed = urllib.parse.urlsplit(value)
     if parsed.scheme != 'https' or parsed.netloc not in ('music.youtube.com', 'www.youtube.com', 'youtube.com', 'youtu.be'):
@@ -174,7 +184,7 @@ def resolve(track):
     video, _playlist = music_link(track['uri'])
     if not video:
         raise ValueError('Select a song to play.')
-    options = _ytdlp_options(socket_timeout=15, retries=1, extractor_retries=1, format='bestaudio[protocol=https]/bestaudio', js_runtimes={'node': {}})
+    options = _ytdlp_options(socket_timeout=15, retries=1, extractor_retries=1, format=AUDIO_FORMAT, js_runtimes={'node': {}})
     try:
         with yt_dlp.YoutubeDL(options) as client:
             info = client.extract_info('https://www.youtube.com/watch?v=' + video, download=False)
@@ -210,7 +220,7 @@ def download_audio(track, folder, progress=None, max_bytes=None):
         hooks.append(report)
     options = _ytdlp_options(
         socket_timeout=30, retries=1, extractor_retries=1, noprogress=True,
-        format='bestaudio[protocol=https]/bestaudio', overwrites=True,
+        format=AUDIO_FORMAT, overwrites=True,
         outtmpl=str(folder / (video + '.%(ext)s')), js_runtimes={'node': {}},
     )
     if hooks:
