@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ember's mark: the same teardrop the iOS asset carries, drawn as a glyph on
+     a transparent field instead of a dark tile, so it sits with the other
+     icons in the taskbar rather than inside its own square. The palette comes
+     from the app's own accent (#ef5367, hover #fa6678 in src/style.css). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="ember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fa6678"/>
+      <stop offset="1" stop-color="#d9417c"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(64 64) scale(1.22) translate(-64 -64)">
+    <path fill="url(#ember)" d="M62.5 18.8
+             C 56 33 35.6 54.6 35.6 75
+             A 26.9 33 0 0 0 89.4 75
+             C 89.4 54.6 69 33 62.5 18.8 Z"/>
+    <circle cx="62.5" cy="86" r="11.9" fill="#ffd6e0"/>
+  </g>
+</svg>

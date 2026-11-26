@@ -90,14 +90,17 @@ bash run.sh          # creates .venv, builds release, launches
 - [ ] Offline behaviour is sane: cached audio still plays, uncached audio
       reports an error rather than hanging.
 
-Shipping note: there is no installer or package. The binary is not standalone —
-it locates `music.py`, `.venv/bin/python` and `desktop-rust/bridge.py` by
-walking up from the executable, or honours `EMBER_CHECKOUT_ROOT`. A release is
-the binary plus a working checkout, not a single file.
+Shipping note: there is no package. `./install-desktop.sh` installs into the
+current user's desktop; it produces no artifact for anyone else. The binary is
+not standalone — it locates `music.py`, `.venv/bin/python` and
+`desktop-rust/bridge.py` by walking up from the executable, or honours
+`EMBER_CHECKOUT_ROOT`. A release is the binary plus a working checkout, not a
+single file.
 
 For the same reason, a desktop launcher must exec that checkout binary instead
-of a copy of it. `~/.local/bin/ember` is a shim that does, and
-`io.ember.Player.desktop` points at it. A copied runtime bundle drifts
+of a copy of it, which is what the installer writes: `~/.local/bin/ember` is
+the shim, `io.ember.Player.desktop` points at it, and re-running the installer
+regenerates both from this checkout. A copied runtime bundle drifts
 silently: the icon used to exec a hand-assembled copy 16 days and a full UI
 revision behind, and no gate could see it, because the stale copy still built,
 still ran, and still played. Setting `EMBER_CHECKOUT_ROOT` to such a copy is
