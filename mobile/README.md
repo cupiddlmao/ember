@@ -364,6 +364,9 @@ Closed since this pass, by the 0.4.0 release gates and device use:
   SideStore install, the Tailscale `/ember` phone connection, and the Settings
   build card were verified during the 0.4.0 release (see the release checklist
   and the `v0.4.0` GitHub release).
+- **Backend 0.5.0 deployed on 2026-11-27** with both volumes backed up before
+  and after; `GET /v1/health` returns `0.5.0` with the full commit SHA, live
+  playlist preview, lyrics and the library API were exercised against it.
 - **Cross-device acceptance was run by a human on 0.4.0**: queued playback,
   playlist sync with conflicts, airplane-mode read-only state, Last.fm scrobble
   counts, song radio, and lyrics tap-to-seek.
@@ -382,9 +385,10 @@ Still open:
   the app opens read-only and the downloaded playlist plays end to end. The
   add-to-playlist sheet crash (nested sheets on iOS 26) was found and fixed in
   the same device session.
-- **QueueCheck.swift, AudioCacheCheck.swift, and LyricsTimingCheck.swift run
-  only in the manual macOS workflow**; their runtime result has not been
-  reviewed from a real run.
+- The manual macOS workflow self-checks were reviewed from the real
+  2026-11-27 `v0.5.0` run: queue, audio cache, offline store, shared library,
+  Last.fm timing/outbox, AppModel cancellation and lyrics timing all reported
+  passed, and the packaged IPA's `EmberGitCommit` matched the dispatched ref.
 - Background playback, lock-screen next/previous, and prefetch-while-locked
   were not re-verified on 0.4.0 specifically.
 
