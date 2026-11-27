@@ -230,7 +230,7 @@ class ApiTests(unittest.TestCase):
         payload = json.loads(body)
         self.assertEqual(payload["youtube_signin"], "not_configured")
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["version"], "0.4.0")
+        self.assertEqual(payload["version"], "0.5.0")
 
         root = Path(self.temporary.name)
         cookies = root / "cookies.txt"
@@ -351,7 +351,7 @@ class ApiTests(unittest.TestCase):
     def test_public_ember_prefix_is_accepted(self):
         status, _, body = self.request("/ember/v1/health")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["version"], "0.4.0")
+        self.assertEqual(json.loads(body)["version"], "0.5.0")
 
     def test_playlist_preview_and_pagination_are_authenticated(self):
         url = "https://music.youtube.com/playlist?list=PL1234567890"
