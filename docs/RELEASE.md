@@ -15,10 +15,10 @@ There is no single version constant; four places have to be edited by hand.
 
 | Component | Where | Current |
 | --- | --- | --- |
-| Desktop | `desktop-rust/Cargo.toml` | `0.4.0` |
-| Backend | `mobile/backend/http_api.py` (`VERSION`) | `0.4.0` |
-| Backend image | `mobile/backend/docker-compose.yml` (`image:`) | `ember-mobile-api:0.4.0` |
-| iPhone | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `0.4.0` / `4` |
+| Desktop | `desktop-rust/Cargo.toml` | `0.5.0` |
+| Backend | `mobile/backend/http_api.py` (`VERSION`) | `0.5.0` |
+| Backend image | `mobile/backend/docker-compose.yml` (`image:`) | `ember-mobile-api:0.5.0` |
+| iPhone | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `0.5.0` / `5` |
 
 ```bash
 grep -m1 '^version' desktop-rust/Cargo.toml
@@ -152,7 +152,7 @@ docker compose -p ember-mobile ps
 ```bash
 set -a; . ./.env; set +a
 curl -fsS -H "Authorization: Bearer $EMBER_API_TOKEN" \
-  http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.4.0","commit":"…"}
+  http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.5.0","commit":"…"}
 # `commit` must be the full SHA you checked out. "unknown" means you built
 # without EMBER_GIT_COMMIT: rebuild with it, do not ship the unstamped image.
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/v1/health   # 401
@@ -230,12 +230,12 @@ Tag the commit whose CI run you verified in gate 1, and build the IPA from the
 tag so the bundle can be traced back to it.
 
 ```bash
-git tag -a v0.4.0 -m "Ember 0.4.0"
-git push origin v0.4.0
+git tag -a v0.5.0 -m "Ember 0.5.0"
+git push origin v0.5.0
 ```
 
 - [ ] Tag pushed, pointing at the commit you actually released.
-- [ ] `git cat-file -t v0.4.0` prints `tag`: annotated, not lightweight.
+- [ ] `git cat-file -t v0.5.0` prints `tag`: annotated, not lightweight.
 - [ ] IPA built by dispatching `ios-unsigned` **on the tag**, and
       `EmberGitCommit` inside the bundle equals the tag's short SHA.
 - [ ] Record the three artifacts: desktop build, IPA SHA-256 and size, backend

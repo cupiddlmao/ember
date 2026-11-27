@@ -15,7 +15,7 @@ services:
         # Records the commit in the image label; CI overrides this with the
         # dispatched SHA. Export EMBER_GIT_COMMIT to stamp local builds too.
         EMBER_GIT_COMMIT: ${EMBER_GIT_COMMIT:-unknown}
-    image: ember-mobile-api:0.4.0
+    image: ember-mobile-api:0.5.0
     restart: unless-stopped
     environment:
       EMBER_API_TOKEN: ${EMBER_API_TOKEN:?Set EMBER_API_TOKEN in mobile/backend/.env}
