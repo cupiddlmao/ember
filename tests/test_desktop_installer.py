@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parent
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "install-desktop.sh"
 
 
