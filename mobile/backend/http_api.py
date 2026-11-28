@@ -32,7 +32,7 @@ from .music_service import (
 )
 from .playlist_service import PlaylistInputError, PlaylistService
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 
 def build_commit() -> str:
