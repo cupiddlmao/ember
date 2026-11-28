@@ -1,6 +1,5 @@
 # Ember Desktop UI Revision Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Raise the native GTK4 desktop client to the craft standard in `docs/ui-revision-brief.md` — one type scale, five surfaces, four radii, honest Home composition, expressive systematic motion — without changing playback, queue, bridge or library behaviour.
 
