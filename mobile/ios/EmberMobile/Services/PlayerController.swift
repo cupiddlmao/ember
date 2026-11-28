@@ -31,6 +31,8 @@ final class PlayerController: NSObject, ObservableObject {
     let lastFM = LastFMReporter()
     private let player = AVPlayer()
     private var timeObserver: Any?
+    private var fallbackPump: AnyCancellable?
+    private var lastTickAt = Date.distantPast
     private var endObserver: NSObjectProtocol?
     private var itemObservation: NSKeyValueObservation?
     private var playbackObservation: NSKeyValueObservation?
@@ -186,11 +188,25 @@ final class PlayerController: NSObject, ObservableObject {
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
-        ) { [weak self] time in
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.tick(time)
+                self?.tick()
             }
         }
+        // The periodic observer has been seen to stop delivering on-device
+        // (offline playback froze the elapsed time while seek and end-of-track
+        // kept working). Sample the live playhead on a wall-clock fallback so
+        // the timestamp, duration, lyrics and Last.fm clock never depend on
+        // observer delivery.
+        fallbackPump = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.track != nil,
+                          Date().timeIntervalSince(self.lastTickAt) > 1.5 else { return }
+                    self.tick()
+                }
+            }
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: nil,
@@ -218,14 +234,18 @@ final class PlayerController: NSObject, ObservableObject {
         }
     }
 
-    private func tick(_ time: CMTime) {
+    private func tick() {
         guard track != nil else { return }
-        if time.seconds.isFinite {
-            currentTime = max(0, time.seconds)
+        lastTickAt = Date()
+        let seconds = player.currentTime().seconds
+        if seconds.isFinite {
+            let clamped = max(0, seconds)
+            if clamped != currentTime { currentTime = clamped }
         }
         if let itemDuration = player.currentItem?.duration.seconds,
            itemDuration.isFinite,
-           itemDuration > 0 {
+           itemDuration > 0,
+           itemDuration != duration {
             duration = itemDuration
         }
         lastFM.sample(track: track, position: currentTime, duration: duration, playing: state == .playing)

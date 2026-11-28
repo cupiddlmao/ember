@@ -389,6 +389,13 @@ Still open:
   2026-11-27 `v0.5.0` run: queue, audio cache, offline store, shared library,
   Last.fm timing/outbox, AppModel cancellation and lyrics timing all reported
   passed, and the packaged IPA's `EmberGitCommit` matched the dispatched ref.
+- On-device 0.5.0 offline session: the Now Playing elapsed slider stayed at
+  0:00 during playback and froze at the scrub-release point; seek, audio and
+  end-of-track kept working. `PlayerController` now reads the live playhead
+  (`AVPlayer.currentTime()`) for every tick and adds a 1 Hz wall-clock
+  fallback when `addPeriodicTimeObserver` stops delivering, so the timestamp,
+  duration correction, lyrics timing and Last.fm clock survive observer
+  failure. Verified fixed on device with the offline pass.
 - Background playback, lock-screen next/previous, and prefetch-while-locked
   were not re-verified on 0.4.0 specifically.
 
