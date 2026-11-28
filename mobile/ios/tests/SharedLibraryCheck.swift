@@ -25,6 +25,10 @@ private final class LibraryScript: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return requests.filter { $0.httpMethod == "POST" || $0.httpMethod == "PUT" }
     }
+    func deletions() -> [URLRequest] {
+        lock.lock(); defer { lock.unlock() }
+        return requests.filter { $0.httpMethod == "DELETE" }
+    }
 }
 
 private final class LibraryProtocol: URLProtocol {
@@ -204,7 +208,7 @@ struct SharedLibraryCheck {
         let offlineDeleted = await relaunched.submit(.delete(target))
         assert(offlineDeleted && relaunched.queue.isEmpty && relaunched.playlists.isEmpty)
         assert(relaunched.details[command.playlistID] == nil)
-        let deleteWrites = Array(script.writes().suffix(2))
+        let deleteWrites = script.deletions()
         let refusedDelete = try JSONSerialization.jsonObject(with: deleteWrites[0].httpBody!) as! [String: Any]
         let reissuedDelete = try JSONSerialization.jsonObject(with: deleteWrites[1].httpBody!) as! [String: Any]
         assert(refusedDelete["expectedRevision"] as? Int == 4 && reissuedDelete["expectedRevision"] as? Int == 5)
