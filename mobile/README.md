@@ -528,14 +528,23 @@ Requires the laptop backend 0.3.0 routes. Older servers show an upgrade message.
   with the song. Adding the same song again creates a separate occurrence.
 - In an Ember playlist, use **Edit** for removal/reordering and the actions menu for
   rename/delete. Deletion asks for confirmation because it affects every device.
-- Server acknowledgment is required before an edit is treated as saved. A conflicting
-  revision is rejected with a reload message; edits never overwrite a newer revision.
-- Ambiguous transport/5xx failures retain the exact request UUID/body privately on
-  disk. **Retry pending save** reuses it, including after app relaunch. New edits are
-  blocked until the pending request is resolved. Retrying never creates a new add ID.
+- Server acknowledgment is required before an edit counts as synced. A conflicting
+  revision is resolved, never silently overwritten: a queued delete re-issues against
+  the fresh revision, a queued update is dropped with a reload message because it was
+  built from stale data.
+- **Offline edits (source, not yet device-verified)**: with cached library data the
+  app accepts edits offline. Each edit applies optimistically to the cached copies
+  and joins an ordered queue of exact mutations; the status line counts them and a
+  manual **Sync pending edits** button appears. A reconnect (refresh, detail load)
+  replays the queue oldest-first with the revisions the optimistic chain predicted,
+  then refreshes. Ambiguous transport/5xx failures keep the whole queue verbatim —
+  the same request UUIDs retry, including after app relaunch, so retrying never
+  duplicates an add. Hard rejects (400/401/413/415/404) drop only the rejected edit;
+  a 404 also drops the rest of that playlist's queue.
 - Successful reads are cached in protected Application Support files, excluded from
   backups and separated by a hash of the server URL. No access key/audio URL is stored
-  there. In an established app session, a failed refresh shows cached data read-only.
+  there. In an established app session, a failed refresh shows cached data read-only
+  only when its cache could not be opened; otherwise cached data is editable.
   The existing launch connection flow still requires a reachable server to open the
   main app after a cold launch; full offline launch is not part of this integration.
 - Refresh on library entry, foreground and pull-to-refresh; details refresh when opened.

@@ -2,6 +2,8 @@
 
 Status: backend SQLite/API is implemented in `mobile/backend/library_store.py`, documented in `mobile/backend/LIBRARY_API.md` and deployed. SwiftUI integration and private in-session offline read cache are implemented in source; Rust integration is also implemented; the backend is deployed and live at 0.3.0, while macOS build/device checks and native Rust interaction checks remain pending. The sections below describe the overall plan.
 
+Offline edits are implemented in the iPhone source (2026-11-28, not yet device-verified): cached libraries accept edits offline, each edit joins an ordered queue of exact mutations applied optimistically to the cached copies, and reconnect replays them oldest-first with the revisions the optimistic chain predicted. A 409 mid-replay resolves rather than overwrites: deletes re-issue against the fresh revision, updates are dropped because they were built from stale data. Ambiguous failures keep the queue verbatim with the same request IDs. The desktop keeps its existing online-only editing — it runs next to the backend, so an offline desktop edit queue has no real use.
+
 The desktop UI revision and this shared-library/radio/lyrics line are now merged on one branch, so the sequencing below is historical: the remaining work is verification and deployment, not a further desktop pass. The CSV import UI shipped in 0.4.0's follow-up: **Library ▸ Import from CSV** runs `tools/import_ember_playlist.py` through the bridge (preview, then save), and release installation is covered by the 0.4.0 tag.
 
 ## Recommendation

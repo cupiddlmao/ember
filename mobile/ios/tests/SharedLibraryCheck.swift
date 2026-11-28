@@ -25,6 +25,10 @@ private final class LibraryScript: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return requests.filter { $0.httpMethod == "POST" || $0.httpMethod == "PUT" }
     }
+    func deletions() -> [URLRequest] {
+        lock.lock(); defer { lock.unlock() }
+        return requests.filter { $0.httpMethod == "DELETE" }
+    }
 }
 
 private final class LibraryProtocol: URLProtocol {
@@ -106,11 +110,13 @@ struct SharedLibraryCheck {
         let command = LibraryMutation.create(name: "GG", entries: entries)
         script.fail(.timedOut)
         let firstSave = await model.submit(command)
-        assert(!firstSave && model.pending?.body.requestId == command.body.requestId && !model.canEdit)
+        assert(!firstSave && model.pending?.body.requestId == command.body.requestId && model.canEdit)
+        assert(model.queue.count == 1)
 
         let restored = SharedLibraryModel(cacheDirectory: directory)
         restored.configure(api)
-        assert(restored.pending?.body.requestId == command.body.requestId && !restored.canEdit)
+        assert(restored.pending?.body.requestId == command.body.requestId && restored.canEdit)
+        assert(restored.queue.count == 1)
         let encodedEntries = try JSONSerialization.jsonObject(with: JSONEncoder().encode(entries))
         let summary: [String: Any] = ["id": command.playlistID, "name": "GG", "revision": 1,
             "createdAt": "2026-11-06T00:00:00+00:00", "updatedAt": "2026-11-06T00:00:00+00:00", "trackCount": 2]
@@ -139,20 +145,74 @@ struct SharedLibraryCheck {
 
         let update = LibraryMutation.update(snapshot, name: "Renamed", entries: [])
         script.enqueue(409, ["error": ["code": "revision_conflict", "message": "Changed elsewhere"]])
+        script.enqueue(200, renamedSummary.merging(["entries": encodedEntries]) { _, new in new })
+        script.enqueue(200, ["playlists": [renamedSummary]])
+        script.enqueue(200, renamedSummary.merging(["entries": encodedEntries]) { _, new in new })
         let conflictSaved = await restored.submit(update)
-        assert(!conflictSaved && restored.pending == nil && !restored.canEdit)
+        assert(!conflictSaved && restored.queue.isEmpty && restored.canEdit)
         assert(restored.details[command.playlistID]?.entries?.count == 2)
-        assert(restored.errorMessage?.contains("Reload") == true)
+        assert(restored.errorMessage?.contains("another device") == true)
 
         let offline = SharedLibraryModel(cacheDirectory: directory)
         offline.configure(api)
         script.fail(.notConnectedToInternet)
         await offline.refresh()
-        assert(!offline.canEdit && offline.playlists.count == 1)
+        assert(offline.canEdit && offline.playlists.count == 1 && offline.queue.isEmpty)
         assert(offline.details[command.playlistID]?.entries?.count == 2)
         let other = APIClient(baseURL: URL(string: "https://other.invalid/ember")!, token: "test-only", session: session)
         offline.configure(other)
         assert(offline.playlists.isEmpty && offline.details.isEmpty && offline.pending == nil)
+
+        // Offline edits queue optimistically, survive a relaunch, and replay
+        // in order with the revisions the optimistic chain predicted.
+        offline.configure(api)
+        assert(offline.queue.isEmpty && offline.details[command.playlistID]?.entries?.count == 2)
+        let extra = Track(id: "aaa111bbb22", title: "Extra", artist: "Artist", album: "", durationMs: 1000, artworkUrl: nil)
+        let cached = offline.details[command.playlistID]!
+        let grown = (cached.entries ?? []) + [SharedPlaylistEntry(track: extra)]
+        let firstQueued = LibraryMutation.update(cached, name: cached.name, entries: grown)
+        let firstSubmitted = await offline.submit(firstQueued)
+        assert(firstSubmitted && offline.queue.count == 1 && !offline.isOnline)
+        assert(offline.details[command.playlistID]?.entries?.count == 3)
+        let secondQueued = LibraryMutation.update(offline.details[command.playlistID]!, name: "Offline name", entries: grown)
+        let secondSubmitted = await offline.submit(secondQueued)
+        assert(secondSubmitted && offline.queue.count == 2)
+        assert(offline.details[command.playlistID]?.name == "Offline name")
+        let relaunched = SharedLibraryModel(cacheDirectory: directory)
+        relaunched.configure(api)
+        assert(relaunched.queue.map { $0.body.requestId } == [firstQueued.body.requestId, secondQueued.body.requestId])
+        let grownJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(grown))
+        let finalSummary = summary.merging(["name": "Offline name", "revision": 4, "trackCount": 3]) { _, new in new }
+        script.enqueue(200, ["id": command.playlistID, "revision": 3, "deleted": false])
+        script.enqueue(200, ["id": command.playlistID, "revision": 4, "deleted": false])
+        script.enqueue(200, ["playlists": [finalSummary]])
+        script.enqueue(200, finalSummary.merging(["entries": grownJSON]) { _, new in new })
+        let synced = await relaunched.retryPending()
+        assert(synced && relaunched.queue.isEmpty)
+        assert(relaunched.details[command.playlistID]?.name == "Offline name")
+        assert(relaunched.details[command.playlistID]?.revision == 4)
+        assert(relaunched.details[command.playlistID]?.entries?.count == 3)
+        let queuedWrites = Array(script.writes().suffix(2))
+        let firstBody = try JSONSerialization.jsonObject(with: queuedWrites[0].httpBody!) as! [String: Any]
+        let secondBody = try JSONSerialization.jsonObject(with: queuedWrites[1].httpBody!) as! [String: Any]
+        assert(firstBody["expectedRevision"] as? Int == 2 && secondBody["expectedRevision"] as? Int == 3)
+
+        // A delete that hits a conflict re-issues against the fresh revision
+        // instead of silently dropping or overwriting the other device.
+        let target = relaunched.details[command.playlistID]!
+        script.enqueue(409, ["error": ["code": "revision_conflict", "message": "Changed elsewhere"]])
+        script.enqueue(200, finalSummary.merging(["name": "Elsewhere", "revision": 5]) { _, new in new }
+            .merging(["entries": grownJSON]) { _, new in new })
+        script.enqueue(200, ["id": command.playlistID, "revision": 6, "deleted": true])
+        script.enqueue(200, ["playlists": []])
+        let offlineDeleted = await relaunched.submit(.delete(target))
+        assert(offlineDeleted && relaunched.queue.isEmpty && relaunched.playlists.isEmpty)
+        assert(relaunched.details[command.playlistID] == nil)
+        let deleteWrites = script.deletions()
+        let refusedDelete = try JSONSerialization.jsonObject(with: deleteWrites[0].httpBody!) as! [String: Any]
+        let reissuedDelete = try JSONSerialization.jsonObject(with: deleteWrites[1].httpBody!) as! [String: Any]
+        assert(refusedDelete["expectedRevision"] as? Int == 4 && reissuedDelete["expectedRevision"] as? Int == 5)
+
         script.enqueue(200, ["playlists": [renamedSummary]])
         await restored.refresh()
         let deletion = LibraryMutation.delete(restored.details[command.playlistID]!)
@@ -161,6 +221,6 @@ struct SharedLibraryCheck {
         let deleted = await restored.submit(deletion)
         assert(deleted && restored.playlists.isEmpty && restored.details[command.playlistID] == nil)
 
-        print("Shared library: duplicate entries, authenticated paths, persisted identical retries, rename/delete, conflict safety and offline/server isolation passed")
+        print("Shared library: duplicate entries, authenticated paths, persisted identical retries, rename/delete, conflict safety, offline edit queueing with ordered replay and delete-conflict reissue passed")
     }
 }
