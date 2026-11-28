@@ -8,17 +8,25 @@ struct SharedLibraryStatus: View {
         VStack(alignment: .leading, spacing: 8) {
             if library.isRefreshing { ProgressView("Refreshing playlists…") }
             if !library.isOnline {
-                Label("Cached library • read only until refreshed", systemImage: "wifi.slash")
-                    .font(.caption).foregroundStyle(EmberTheme.secondaryText)
+                if library.canEdit {
+                    Label(library.queue.isEmpty
+                        ? "Offline • edits will sync when you reconnect"
+                        : "Offline • \(library.queue.count) edit\(library.queue.count == 1 ? "" : "s") will sync when you reconnect",
+                        systemImage: "wifi.slash")
+                        .font(.caption).foregroundStyle(EmberTheme.secondaryText)
+                } else {
+                    Label("Cached library • read only until refreshed", systemImage: "wifi.slash")
+                        .font(.caption).foregroundStyle(EmberTheme.secondaryText)
+                }
             }
             if let message = library.errorMessage {
                 Text(message).font(.caption).foregroundStyle(EmberTheme.pinkSoft)
             }
-            if library.pending != nil {
-                Button("Retry pending save") {
+            if !library.queue.isEmpty {
+                Button(library.queue.count == 1 ? "Sync pending edit" : "Sync \(library.queue.count) pending edits") {
                     Task { if await library.retryPending() { onRetrySuccess?() } }
                 }
-                    .disabled(library.isSaving)
+                    .disabled(library.isSaving || !library.isOnline)
             }
             Button("Refresh library") { Task { await library.refresh() } }
                 .disabled(library.isSaving || library.isRefreshing)
@@ -138,8 +146,10 @@ struct AddToPlaylistView: View {
                         Button(playlist.name) {
                             working = true
                             Task {
-                                // Always fetch the current revision before adding; never append to stale cache.
-                                if let current = await library.load(playlist.id), let entries = current.entries {
+                                // Always fetch the current revision before adding; never append to
+                                // stale cache. Offline, the cached copy is the freshest state there is.
+                                let current = await library.load(playlist.id) ?? library.details[playlist.id]
+                                if let current, let entries = current.entries {
                                     let saved = await library.submit(.update(current, name: current.name,
                                         entries: entries + [SharedPlaylistEntry(track: track)]))
                                     if saved { dismiss() }
