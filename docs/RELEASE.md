@@ -15,10 +15,10 @@ There is no single version constant; four places have to be edited by hand.
 
 | Component | Where | Current |
 | --- | --- | --- |
-| Desktop | `desktop-rust/Cargo.toml` | `0.5.0` |
-| Backend | `mobile/backend/http_api.py` (`VERSION`) | `0.5.0` |
-| Backend image | `mobile/backend/docker-compose.yml` (`image:`) | `ember-mobile-api:0.5.0` |
-| iPhone | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `0.5.0` / `5` |
+| Desktop | `desktop-rust/Cargo.toml` | `0.6.0` |
+| Backend | `mobile/backend/http_api.py` (`VERSION`) | `0.6.0` |
+| Backend image | `mobile/backend/docker-compose.yml` (`image:`) | `ember-mobile-api:0.6.0` |
+| iPhone | `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `0.6.0` / `6` |
 
 ```bash
 grep -m1 '^version' desktop-rust/Cargo.toml
@@ -152,7 +152,7 @@ docker compose -p ember-mobile ps
 ```bash
 set -a; . ./.env; set +a
 curl -fsS -H "Authorization: Bearer $EMBER_API_TOKEN" \
-  http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.5.0","commit":"…"}
+  http://127.0.0.1:18080/v1/health      # {"status":"ok","version":"0.6.0","commit":"…"}
 # `commit` must be the full SHA you checked out. "unknown" means you built
 # without EMBER_GIT_COMMIT: rebuild with it, do not ship the unstamped image.
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/v1/health   # 401
