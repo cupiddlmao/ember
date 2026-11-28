@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import services
+from core import services
 
 
 class PrivateStorageTests(unittest.TestCase):

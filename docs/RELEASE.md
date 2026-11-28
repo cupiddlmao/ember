@@ -50,7 +50,7 @@ grep -E 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' \
 ## 2. Automated gates
 
 ```bash
-python -m unittest discover -q
+python -m unittest discover -s tests -t . -q
 cd desktop-rust && python -m unittest -q test_bridge.py test_cache.py test_library.py
 cd desktop-rust && cargo test --locked          # 84 passed, 13 ignored
 .venv/bin/python -m unittest discover -s mobile/backend/tests -t . -v
@@ -92,7 +92,7 @@ bash run.sh          # creates .venv, builds release, launches
 
 Shipping note: there is no package. `./install-desktop.sh` installs into the
 current user's desktop; it produces no artifact for anyone else. The binary is
-not standalone — it locates `music.py`, `.venv/bin/python` and
+not standalone — it locates `core/music.py`, `.venv/bin/python` and
 `desktop-rust/bridge.py` by walking up from the executable, or honours
 `EMBER_CHECKOUT_ROOT`. A release is the binary plus a working checkout, not a
 single file.

@@ -398,7 +398,7 @@ def cache_root() -> Path:
 
 
 def cache_store():
-    from audio_cache import AudioStore
+    from core.audio_cache import AudioStore
     root = cache_root()
     return AudioStore(cache_root=root / "audio", download_root=root / "downloads",
                       index_path=root / "index.sqlite3")
@@ -505,7 +505,7 @@ def csv_import_action(command: object, real_stdout) -> None:
         raise RequestError("Choose an import mode.")
     apply = command.get("apply") is True
     try:
-        import import_ember_playlist as importer
+        from tools import import_ember_playlist as importer
     except ImportError:
         raise DependencyError(
             "The checkout import module is unavailable. Check the checkout files."
@@ -590,7 +590,7 @@ def run(real_stdout) -> None:
     # Library imports can be noisy; keep stdout exclusively for the protocol.
     try:
         with contextlib.redirect_stdout(sys.stderr):
-            import music  # type: ignore
+            from core import music  # type: ignore
     except ImportError:
         raise DependencyError(
             "The checkout Python environment is missing music dependencies. "

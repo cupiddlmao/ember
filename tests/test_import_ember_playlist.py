@@ -9,7 +9,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-import import_ember_playlist as importer
+from tools import import_ember_playlist as importer
 from mobile.backend.config import Settings
 from mobile.backend.http_api import create_server
 from mobile.backend.tests.test_http_api import FakeService, FakePlaylists, FakeLyrics, TOKEN

@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import disk_cache as cache
-import music
+from core import disk_cache as cache
+from core import music
 
 
 class CacheTests(unittest.TestCase):
@@ -57,9 +57,9 @@ class CacheTests(unittest.TestCase):
 
     def test_playlist_cache_survives_refresh_failure(self):
         result = {'kind': 'playlist', 'tracks': [], 'playlist': {'id': 'PL1234567890'}}
-        with patch('music._search', return_value=result):
+        with patch('core.music._search', return_value=result):
             music.search('https://music.youtube.com/playlist?list=PL1234567890')
-        with patch('music._search', side_effect=RuntimeError('offline')):
+        with patch('core.music._search', side_effect=RuntimeError('offline')):
             with self.assertRaises(RuntimeError):
                 music.search('https://music.youtube.com/playlist?list=PL1234567890')
         self.assertEqual(music.cached_playlist('https://music.youtube.com/playlist?list=PL1234567890'), result)

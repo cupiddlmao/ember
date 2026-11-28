@@ -3,7 +3,7 @@
 # terminal.
 #
 # The launcher entry points at a shim, the shim execs the binary in this
-# checkout, and the checkout is what discovers music.py, .venv/bin/python and
+# checkout, and the checkout is what discovers core/music.py, .venv/bin/python and
 # desktop-rust/bridge.py by walking up from the executable. Nothing here copies
 # a binary or sets EMBER_CHECKOUT_ROOT: docs/RELEASE.md explains why a copied
 # runtime bundle is the failure mode this shape exists to prevent.

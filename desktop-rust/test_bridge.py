@@ -178,16 +178,17 @@ class CsvImportTests(unittest.TestCase):
     def setUp(self):
         self.out = io.StringIO()
         # Validation must not depend on the real import module being importable.
-        self.module_token = object()
-        self.previous_module = sys.modules.get("import_ember_playlist")
-        self.fake = types.ModuleType("import_ember_playlist")
-        sys.modules["import_ember_playlist"] = self.fake
+        self.previous_module = sys.modules.get("tools.import_ember_playlist")
+        self.fake = types.ModuleType("tools.import_ember_playlist")
+        sys.modules["tools.import_ember_playlist"] = self.fake
 
     def tearDown(self):
         if self.previous_module is not None:
-            sys.modules["import_ember_playlist"] = self.previous_module
+            sys.modules["tools.import_ember_playlist"] = self.previous_module
         else:
-            sys.modules.pop("import_ember_playlist", None)
+            sys.modules.pop("tools.import_ember_playlist", None)
+        import tools
+        tools.__dict__.pop("import_ember_playlist", None)
 
     def install_calls(self):
         calls = []

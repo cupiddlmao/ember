@@ -280,7 +280,7 @@ class LastFMTests(unittest.TestCase):
             {"videoId": "ccccccccccc", "title": "Song", "artists": [{"name": "Artist"}], "duration": "3:00"},
         ]
         service = MusicService(None, 1000)
-        with patch("music.YTMusic", return_value=catalog):
+        with patch("core.music.YTMusic", return_value=catalog):
             tracks = service.radio([{"title": "Song", "artist": "Artist"}] * 2)
             self.assertEqual([t["id"] for t in tracks], ["ccccccccccc"])
             catalog.search.side_effect = TimeoutError()

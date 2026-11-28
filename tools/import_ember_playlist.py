@@ -10,10 +10,14 @@ from pathlib import Path
 import sys
 import uuid
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "desktop-rust"))
-import library_client as client
-from mobile.backend.library_store import entries_metadata, text
-from transfer_playlist import read_tracks, clean
+REPO_ROOT = Path(__file__).resolve().parents[1]
+for _entry in (str(REPO_ROOT), str(REPO_ROOT / "desktop-rust")):
+    if _entry not in sys.path:
+        sys.path.insert(0, _entry)
+
+import library_client as client  # noqa: E402  (path setup must happen first)
+from mobile.backend.library_store import entries_metadata, text  # noqa: E402
+from tools.transfer_playlist import read_tracks, clean  # noqa: E402
 
 
 def prepare(source, report, title):

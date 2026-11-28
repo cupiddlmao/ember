@@ -6,11 +6,17 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 import time
 import unicodedata
 
 from ytmusicapi import YTMusic
-from services import save_private
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from core.services import save_private  # noqa: E402  (path setup must happen first)
 
 
 def clean(value):
