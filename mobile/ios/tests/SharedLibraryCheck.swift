@@ -167,10 +167,12 @@ struct SharedLibraryCheck {
         let cached = offline.details[command.playlistID]!
         let grown = (cached.entries ?? []) + [SharedPlaylistEntry(track: extra)]
         let firstQueued = LibraryMutation.update(cached, name: cached.name, entries: grown)
-        assert(await offline.submit(firstQueued) && offline.queue.count == 1 && !offline.isOnline)
+        let firstSubmitted = await offline.submit(firstQueued)
+        assert(firstSubmitted && offline.queue.count == 1 && !offline.isOnline)
         assert(offline.details[command.playlistID]?.entries?.count == 3)
         let secondQueued = LibraryMutation.update(offline.details[command.playlistID]!, name: "Offline name", entries: grown)
-        assert(await offline.submit(secondQueued) && offline.queue.count == 2)
+        let secondSubmitted = await offline.submit(secondQueued)
+        assert(secondSubmitted && offline.queue.count == 2)
         assert(offline.details[command.playlistID]?.name == "Offline name")
         let relaunched = SharedLibraryModel(cacheDirectory: directory)
         relaunched.configure(api)
