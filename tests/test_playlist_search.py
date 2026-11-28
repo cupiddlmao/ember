@@ -1,6 +1,6 @@
 import unittest
 
-from playlist_search import filter_tracks
+from core.playlist_search import filter_tracks
 
 
 TRACKS = [

@@ -119,7 +119,7 @@ docker compose -p ember-mobile up -d --build
 docker compose -p ember-mobile ps
 ```
 
-The image tag in Compose is `ember-mobile-api:0.5.0`. The build installs `PyYAML`, copies `playlist_search.py`, and includes the new playlist/lyrics services. The named audio-cache volume is preserved, and a separate playlist-library volume stores SQLite data outside the audio cache. Keep Compose project `ember-mobile`, the existing `.env` token and Tailscale `/ember` mount. Compose defaults to `127.0.0.1:18080` (set `EMBER_HOST_PORT` to preserve a different existing mapping). Do not run `down -v`. See [library storage and backups](backend/LIBRARY_API.md).
+The image tag in Compose is `ember-mobile-api:0.5.0`. The build installs `PyYAML`, copies the `core` package, and includes the new playlist/lyrics services. The named audio-cache volume is preserved, and a separate playlist-library volume stores SQLite data outside the audio cache. Keep Compose project `ember-mobile`, the existing `.env` token and Tailscale `/ember` mount. Compose defaults to `127.0.0.1:18080` (set `EMBER_HOST_PORT` to preserve a different existing mapping). Do not run `down -v`. See [library storage and backups](backend/LIBRARY_API.md).
 
 ### Optional: sign-in cookies for blocked recordings
 
@@ -455,8 +455,8 @@ mobile/
     __main__.py              python -m mobile.backend entry point
     config.py                environment settings and validation
     http_api.py              authenticated HTTP routes and limits
-    music_service.py         desktop music.py reuse + AAC conversion
-    audio_cache.py           bounded LRU M4A cache
+    music_service.py         core.music reuse + AAC conversion
+    audio_cache.py           bounded LRU M4A cache (backend-owned)
     playlist_service.py      public playlist preview/pages, cache, limits
     lyrics_service.py        LRCLIB lookup, LRC/Lyricsfile parsing
     requirements.txt         includes PyYAML

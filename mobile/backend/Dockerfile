@@ -22,7 +22,7 @@ COPY requirements.txt ./requirements.txt
 COPY mobile/backend/requirements.txt ./mobile/backend/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -r mobile/backend/requirements.txt
 
-COPY music.py disk_cache.py services.py playlist_search.py ./
+COPY core ./core
 COPY mobile ./mobile
 
 RUN useradd --system --uid 10001 --home /var/lib/ember ember \

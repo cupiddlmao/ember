@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import bridge
-import music
+from core import music
 
 TRACK = {"id": "dm4tkSNKfFI", "uri": "https://music.youtube.com/watch?v=dm4tkSNKfFI",
          "name": "Awake", "artists": [{"name": "Tycho"}], "album": {"name": "Awake"}, "duration_ms": 284000}

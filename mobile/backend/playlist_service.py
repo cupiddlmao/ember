@@ -18,8 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import music  # noqa: E402  (path setup must happen first)
-import playlist_search  # noqa: E402
+from core import music, playlist_search  # noqa: E402  (path setup must happen first)
 
 from .music_service import UpstreamError, serialize_track  # noqa: E402
 

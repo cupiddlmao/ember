@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
-from transfer_playlist import read_tracks, score, match_tracks, upload
+from tools.transfer_playlist import read_tracks, score, match_tracks, upload
 
 
 class TransferTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(score(source, {**candidate, 'duration_seconds': 200}), 0)
 
     def test_match_resume_preserves_approval_and_fingerprint(self):
-        with tempfile.TemporaryDirectory() as d, patch('transfer_playlist.time.sleep'):
+        with tempfile.TemporaryDirectory() as d, patch('tools.transfer_playlist.time.sleep'):
             source, report = Path(d) / 'in.csv', Path(d) / 'review.json'
             source.write_text('title,artist\nAwake,Tycho\n')
             client = MagicMock()
@@ -37,7 +37,7 @@ class TransferTests(unittest.TestCase):
             with self.assertRaises(ValueError): match_tracks(source, report, client)
 
     def test_upload_batches_and_resumes_without_recreating(self):
-        with tempfile.TemporaryDirectory() as d, patch('transfer_playlist.time.sleep'):
+        with tempfile.TemporaryDirectory() as d, patch('tools.transfer_playlist.time.sleep'):
             report, state = Path(d) / 'review.json', Path(d) / 'state.json'
             ids = [f'{i:011d}' for i in range(121)]
             report.write_text(json.dumps({'matches': [{'video_id': v, 'approved': True} for v in ids] + [{'video_id': 'abcdefghijk', 'approved': False}]}))

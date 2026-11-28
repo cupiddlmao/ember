@@ -7,14 +7,14 @@ from unittest.mock import patch, MagicMock
 import yt_dlp
 from yt_dlp.cookies import CookieLoadError
 
-from music import AUDIO_FORMAT, _ytdlp_options, cached_playlist, download_audio, music_link, normalize, resolve, search
+from core.music import AUDIO_FORMAT, _ytdlp_options, cached_playlist, download_audio, music_link, normalize, resolve, search
 
 
 class MusicTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        cache = patch('disk_cache.ROOT', Path(folder.name))
+        cache = patch('core.disk_cache.ROOT', Path(folder.name))
         cache.start()
         self.addCleanup(cache.stop)
 
@@ -47,7 +47,7 @@ class MusicTests(unittest.TestCase):
                 {'videoId': 'bad', 'title': 'Invalid'},
             ],
         }
-        with patch('music.YTMusic', return_value=api):
+        with patch('core.music.YTMusic', return_value=api):
             result = search('Tycho')
             self.assertEqual(result['kind'], 'search')
             self.assertEqual(len(result['tracks']), 1)
@@ -68,7 +68,7 @@ class MusicTests(unittest.TestCase):
             {'videoId': 'Ux_ZYXUemTU', 'title': 'Related'},
             {'videoId': None},
         ]}
-        with patch('music.YTMusic', return_value=api), patch('music.resolve') as resolve:
+        with patch('core.music.YTMusic', return_value=api), patch('core.music.resolve') as resolve:
             result = search('https://music.youtube.com/watch?v=dm4tkSNKfFI&list=RDAMVMdm4tkSNKfFI')
             self.assertEqual(result['kind'], 'radio')
             self.assertEqual(len(result['tracks']), 2)
@@ -85,7 +85,7 @@ class MusicTests(unittest.TestCase):
             'tracks': [{'videoId': 'dm4tkSNKfFI', 'title': 'One', 'duration': '3:00'}],
         }
         url = 'https://music.youtube.com/playlist?list=PL1234567890'
-        with patch('music.YTMusic', return_value=api):
+        with patch('core.music.YTMusic', return_value=api):
             search(url)
         cached = cached_playlist(url)
         self.assertEqual(cached['playlist']['title'], 'Night Drive')
@@ -130,7 +130,7 @@ class MusicTests(unittest.TestCase):
                 assert download
                 Path(self.options['outtmpl'].replace('%(ext)s', 'webm')).write_bytes(b'x' * 2048)
                 return {'id': 'dm4tkSNKfFI', 'title': 'Awake', 'duration': 284, 'has_drm': False}
-        with patch('music.yt_dlp.YoutubeDL', FakeYoutubeDL):
+        with patch('core.music.yt_dlp.YoutubeDL', FakeYoutubeDL):
             resolved, path = download_audio({'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'}, folder.name)
         self.assertEqual(resolved['name'], 'Awake')
         self.assertEqual(path.suffix, '.webm')
@@ -151,7 +151,7 @@ class MusicTests(unittest.TestCase):
                 Path(self.options['outtmpl'].replace('%(ext)s', 'webm')).write_bytes(b'x' * 2048)
                 return {'id': 'dm4tkSNKfFI', 'title': 'Awake', 'duration': 284, 'has_drm': False}
         uri = {'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'}
-        with patch('music.yt_dlp.YoutubeDL', FakeYoutubeDL):
+        with patch('core.music.yt_dlp.YoutubeDL', FakeYoutubeDL):
             download_audio(uri, folder.name, max_bytes=4096)
             self.assertEqual(seen['max_filesize'], 4096)
             with self.assertRaises(RuntimeError):
@@ -183,7 +183,7 @@ class MusicTests(unittest.TestCase):
         self.assertEqual(normalize(live)['duration_ms'], 0)
         api = MagicMock()
         api.get_playlist.return_value = {'title': 'Night Drive', 'tracks': [live, {'videoId': 'Ux_ZYXUemTU', 'title': 'Encore'}]}
-        with patch('music.YTMusic', return_value=api):
+        with patch('core.music.YTMusic', return_value=api):
             result = search('https://music.youtube.com/playlist?list=PL1234567890')
         self.assertEqual([track['name'] for track in result['tracks']], ['Live at the Bowl', 'Encore'])
         self.assertEqual(result['unavailable'], 0)
@@ -198,7 +198,7 @@ class MusicTests(unittest.TestCase):
             def __exit__(self, *_): return False
             def extract_info(self, *_args, **_kwargs):
                 raise CookieLoadError('failed to load cookies')
-        with patch('music.yt_dlp.YoutubeDL', BrokenCookies):
+        with patch('core.music.yt_dlp.YoutubeDL', BrokenCookies):
             with self.assertRaises(RuntimeError):
                 resolve({'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'})
 
@@ -223,7 +223,7 @@ class MusicTests(unittest.TestCase):
                 return info
 
         uri = {'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'}
-        with patch('music.yt_dlp.YoutubeDL', ReadOnlyCookies):
+        with patch('core.music.yt_dlp.YoutubeDL', ReadOnlyCookies):
             track, stream = resolve(uri)
             self.assertEqual((track['name'], stream), ('Awake', 'https://audio.googlevideo.com/music'))
             self.assertEqual(download_audio(uri, folder.name)[1].suffix, '.webm')
@@ -231,7 +231,7 @@ class MusicTests(unittest.TestCase):
         class UnreadableCookies(ReadOnlyCookies):
             def extract_info(self, *_args, **_kwargs):
                 raise PermissionError(13, 'Permission denied')
-        with patch('music.yt_dlp.YoutubeDL', UnreadableCookies):
+        with patch('core.music.yt_dlp.YoutubeDL', UnreadableCookies):
             with self.assertRaises(RuntimeError):
                 resolve(uri)
 
@@ -240,7 +240,7 @@ class MusicTests(unittest.TestCase):
         client.__enter__.return_value = client
         data = {'id': 'dm4tkSNKfFI', 'title': 'Awake', 'url': 'https://audio.googlevideo.com/music', 'duration': 284}
         client.extract_info.return_value = data
-        with patch('music.yt_dlp.YoutubeDL', return_value=client):
+        with patch('core.music.yt_dlp.YoutubeDL', return_value=client):
             self.assertEqual(resolve({'uri': 'https://music.youtube.com/watch?v=dm4tkSNKfFI'})[0]['name'], 'Awake')
             for changes in ({'url': 'https://evil.test/audio'}, {'has_drm': True}):
                 client.extract_info.return_value = {**data, **changes}

@@ -16,7 +16,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-import music
+from . import music
 
 DEFAULT_LIMIT = 2 * 1024 ** 3
 _CACHE_HOME = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache'))

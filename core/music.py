@@ -4,7 +4,7 @@ import re
 import urllib.parse
 from pathlib import Path
 
-import disk_cache
+from . import disk_cache
 
 import yt_dlp
 from ytmusicapi import YTMusic

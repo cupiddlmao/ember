@@ -36,7 +36,7 @@ Never log/persist temporary stream URLs or credentials. Never put user/provider 
 Only modify desktop-rust/ and its own docs, except a minimal explicitly documented shared helper change if truly necessary.
 Do not modify the shared Python music core, installed ~/.local/share/ember-player, mobile/backend or SwiftUI. Preserve unrelated working-tree edits.
 No commits, pushes, installation or deployment.
-Do not implement playlist sync now; see EMBER_PLAYLIST_SYNC_PLAN.md for the next architecture. Leave sensible space for a future playlist sidebar without adding dead controls.
+Do not implement playlist sync now; see docs/playlist-sync-plan.md for the next architecture. Leave sensible space for a future playlist sidebar without adding dead controls.
 Do not add radio, downloads, shuffle/repeat, local filesystem music scanning or session persistence.
 
 ## Validate and deliver

@@ -73,9 +73,9 @@ impl BridgeConfig {
     pub fn from_root(root: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let root = fs::canonicalize(root.as_ref())
             .map_err(|_| ConfigError::new("The configured Ember checkout path does not exist."))?;
-        if !root.join("music.py").is_file() {
+        if !root.join("core/music.py").is_file() {
             return Err(ConfigError::new(
-                "The configured checkout does not contain music.py.",
+                "The configured checkout does not contain core/music.py.",
             ));
         }
         let python = root.join(".venv/bin/python");
@@ -132,8 +132,10 @@ mod tests {
 
     fn fake_checkout() -> tempfile::TempDir {
         let root = tempfile::tempdir().expect("temp checkout");
+        let core = root.path().join("core");
+        fs::create_dir_all(&core).expect("core dir");
         fs::write(
-            root.path().join("music.py"),
+            core.join("music.py"),
             "def search(query):\n    return {}\n",
         )
         .expect("music.py");
@@ -179,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_directory_without_music_py() {
+    fn rejects_a_directory_without_core_music_py() {
         let root = tempfile::tempdir().expect("temp dir");
         let error = BridgeConfig::from_root(root.path()).expect_err("must reject empty root");
         assert!(error.to_string().contains("music.py"));

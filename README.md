@@ -17,14 +17,12 @@ The desktop client provides public YouTube Music search, artwork, a persistent q
 ## Layout
 
 - `desktop-rust/` — GTK4/Rust desktop client, embedded stylesheet, music bridge and shared-library client.
-- `music.py` — public YouTube Music search, playlist loading and yt-dlp stream resolution.
-- `audio_cache.py` — private, file-backed audio cache and offline downloads.
-- `disk_cache.py` — bounded artwork and playlist-metadata cache.
-- `services.py` — private JSON storage helpers.
-- `playlist_search.py` — local playlist filtering used by the mobile API.
+- `core/` — the shared music and storage package: public YouTube Music search, playlist loading and yt-dlp stream resolution (`core/music.py`), the private file-backed audio cache and offline downloads (`core/audio_cache.py`), the bounded artwork and playlist-metadata cache (`core/disk_cache.py`), private JSON storage helpers (`core/services.py`) and the local playlist filtering used by the mobile API (`core/playlist_search.py`).
+- `tools/` — CSV import and match-report scripts.
+- `tests/` — shared-core test suite.
 - `mobile/` — SwiftUI iPhone app and the authenticated backend for search, prepared M4A audio, lyrics and shared playlists.
-- `import_ember_playlist.py` / [TRANSFER.md](TRANSFER.md) — import approved Spotify CSV matches into the shared Ember library, preserving order and duplicates. `transfer_playlist.py` prepares match reports and retains the separate YouTube upload option.
-- [EMBER_PLAYLIST_SYNC_PLAN.md](EMBER_PLAYLIST_SYNC_PLAN.md) — shared-playlist architecture and rollout status.
+- `tools/import_ember_playlist.py` / [transfer docs](docs/transfer.md) — import approved Spotify CSV matches into the shared Ember library, preserving order and duplicates. `tools/transfer_playlist.py` prepares match reports and retains the separate YouTube upload option.
+- [Playlist sync plan](docs/playlist-sync-plan.md) — shared-playlist architecture and rollout status.
 
 The GTK Python desktop UI and the abandoned librespot engine prototype have been removed. Rust is the desktop application; the remaining Python modules are the shared music and storage core.
 

@@ -15,7 +15,7 @@ prints, and retries keep the same saved receipts as the command line.
 Preview an existing reviewed match report:
 
 ```bash
-.venv/bin/python import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --title GG
+.venv/bin/python tools/import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --title GG
 ```
 
 Add `--apply` to import into the configured shared backend. Approved rows keep
@@ -33,7 +33,7 @@ To add only songs an existing playlist is missing, leaving its entries, edits an
 order untouched (it must already exist under that title):
 
 ```bash
-.venv/bin/python import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --title GG --add-new
+.venv/bin/python tools/import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --title GG --add-new
 ```
 
 Add `--apply` to append the missing occurrences; running the same command again
@@ -64,7 +64,7 @@ Keep your CSV/report outside this source folder if you do not want your library 
 Run from the Ember project folder:
 
 ```bash
-.venv/bin/python transfer_playlist.py match /path/to/spotify.csv /path/to/review.json
+.venv/bin/python tools/transfer_playlist.py match /path/to/spotify.csv /path/to/review.json
 ```
 
 Matching uses YouTube Music Songs search, title/artist similarity and optional duration. It conservatively rejects changes such as original to remix/cover/live. No heuristic guarantees the correct recording.
@@ -91,7 +91,7 @@ This is separate from Ember's public playback; it does not sign Ember into Googl
 This command writes to your YouTube Music account and creates an **unlisted** playlist (anyone with its link can view it):
 
 ```bash
-.venv/bin/python transfer_playlist.py upload /path/to/review.json \
+.venv/bin/python tools/transfer_playlist.py upload /path/to/review.json \
   --auth ~/.config/ember-player/youtube-transfer-auth.json \
   --title 'Imported Spotify playlist' \
   --state /path/to/transfer-state.json
@@ -109,7 +109,7 @@ Repair missing album names on an existing Ember import (fills blanks only; prese
 occurrence IDs, ordering, edits and newly added songs):
 
 ```bash
-.venv/bin/python import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --repair-albums
+.venv/bin/python tools/import_ember_playlist.py ~/Downloads/GG.csv ~/Downloads/GG-youtube-review.json --repair-albums
 ```
 
 Review the count, then repeat with `--apply`. Repair snapshots and exact retry bodies

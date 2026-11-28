@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from audio_cache import AudioStore
+from core.audio_cache import AudioStore
 
 
 class _SteppingClock:
@@ -42,7 +42,7 @@ class AudioStoreTests(unittest.TestCase):
             index_path=self.root / 'audio-index.sqlite3',
             limit=250,
         )
-        self.download = patch('audio_cache.music.download_audio', side_effect=self.fake_download)
+        self.download = patch('core.audio_cache.music.download_audio', side_effect=self.fake_download)
         self.download_mock = self.download.start()
         self.addCleanup(self.download.stop)
         self.addCleanup(self.folder.cleanup)
@@ -75,7 +75,7 @@ class AudioStoreTests(unittest.TestCase):
         first = self.track('aaaaaaaaaaa', 'First')
         second = self.track('bbbbbbbbbbb', 'Second')
         third = self.track('ccccccccccc', 'Third')
-        with patch('audio_cache.time', _SteppingClock()):
+        with patch('core.audio_cache.time', _SteppingClock()):
             self.store.download(first)
             self.store.download(second)
             self.store.lookup(first)

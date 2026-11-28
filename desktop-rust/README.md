@@ -20,7 +20,7 @@ the desktop migration:
 - desktop media controls through `org.mpris.MediaPlayer2`, covering play/pause,
   next/previous, seek, track metadata and playback position
 - CSV import: Library ▸ Import from CSV runs an approved Spotify CSV match
-  report through `import_ember_playlist.py` — preview first, then save — with
+  report through `tools/import_ember_playlist.py` — preview first, then save — with
   the script's own idempotent retries and saved receipts intact
 
 This is the Ember desktop app. It uses the checkout's Python music core through
@@ -69,7 +69,7 @@ cargo build --release
 `desktop-rust/Cargo.lock`.
 
 The app discovers the checkout by walking ancestors of the executable (and the
-source directory for development) until it finds `music.py`, `.venv/bin/python`
+source directory for development) until it finds `core/music.py`, `.venv/bin/python`
 and `desktop-rust/bridge.py`. The launch working directory is not assumed. To
 run a binary from another location:
 
@@ -420,7 +420,7 @@ cargo test --locked --manifest-path desktop-rust/Cargo.toml \
 These exercise a temporary local backend, metadata contracts and dialog release,
 not the deployed laptop library. The display-only dialog test must run in its own
 process under a native GTK session. Approved CSV match reports can be imported
-with the root `import_ember_playlist.py` tool; see [TRANSFER.md](../TRANSFER.md).
+with the `tools/import_ember_playlist.py` tool; see [transfer docs](../docs/transfer.md).
 
 The grey Shuffle action beside playlist Play starts the full playlist in a random
 queue order, preserving duplicate occurrences and leaving the saved order unchanged.

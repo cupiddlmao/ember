@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import music  # noqa: E402  (path setup must happen first)
+from core import music  # noqa: E402  (path setup must happen first)
 
 VIDEO_ID = re.compile(r"^[\w-]{11}$", re.ASCII)
 

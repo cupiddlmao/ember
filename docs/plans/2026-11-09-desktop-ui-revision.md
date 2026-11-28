@@ -1,6 +1,5 @@
 # Ember Desktop UI Revision Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Raise the native GTK4 desktop client to the craft standard in `docs/ui-revision-brief.md` — one type scale, five surfaces, four radii, honest Home composition, expressive systematic motion — without changing playback, queue, bridge or library behaviour.
 
@@ -13,7 +12,7 @@
 ## Global Constraints
 
 - Rust `1.92+`; GTK `4.12+` API floor, runtime `4.24.1`; GStreamer `1.24+`; no new UI framework, webview or Electron.
-- Do not modify `music.py`, `audio_cache.py`, `disk_cache.py`, `services.py`, `playlist_search.py`, `transfer_playlist.py`, `import_ember_playlist.py`, `mobile/**`, `.github/**`, or the Python bridge protocol.
+- Do not modify `core/**`, `tools/**`, `mobile/**`, `.github/**`, or the Python bridge protocol.
 - Preserve: queue occurrence IDs and duplicate independence; Play next/Add/Reorder/Remove/Clear; automatic advance once; previous-restart at 3 s; paused-preparation silence; stale search/resolve/lyrics/playback rejection; strong `AppUi` ownership in the GLib polling source; per-lane child process cancellation; 300 ms lyric follow animation and its cancellation paths; percentage volume conversion; control-character validation.
 - Never log, display or persist stream URLs, access keys or raw subprocess output. Never place provider text into unescaped GTK markup.
 - Exact values: default window `1180×760`, minimum `780×580`; sidebar `232`; side panel `360`; player bar `56`; pill max `380`, min `280`; type `11/12/13/15/19/26/34` (+`48` cover initial); weights `400/500/600`; radii `6/10/14/999`; motion `90/120/180/220/320/420` ms; contrast `7:1 / 4.5:1 / 3:1`; dark appearance only.

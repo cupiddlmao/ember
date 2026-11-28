@@ -818,7 +818,9 @@ esac
 
     fn fake_checkout(script: &str) -> tempfile::TempDir {
         let root = tempfile::tempdir().expect("temp checkout");
-        fs::write(root.path().join("music.py"), "# stub\n").expect("music.py");
+        let core = root.path().join("core");
+        fs::create_dir_all(&core).expect("core dir");
+        fs::write(core.join("music.py"), "# stub\n").expect("music.py");
         let bridge_dir = root.path().join("desktop-rust");
         fs::create_dir_all(&bridge_dir).expect("bridge dir");
         fs::write(bridge_dir.join("bridge.py"), "# stub\n").expect("bridge.py");

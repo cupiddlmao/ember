@@ -2,7 +2,7 @@
 
 Status: backend SQLite/API is implemented in `mobile/backend/library_store.py`, documented in `mobile/backend/LIBRARY_API.md` and deployed. SwiftUI integration and private in-session offline read cache are implemented in source; Rust integration is also implemented; the backend is deployed and live at 0.3.0, while macOS build/device checks and native Rust interaction checks remain pending. The sections below describe the overall plan.
 
-The desktop UI revision and this shared-library/radio/lyrics line are now merged on one branch, so the sequencing below is historical: the remaining work is verification and deployment, not a further desktop pass. The CSV import UI shipped in 0.4.0's follow-up: **Library ▸ Import from CSV** runs `import_ember_playlist.py` through the bridge (preview, then save), and release installation is covered by the 0.4.0 tag.
+The desktop UI revision and this shared-library/radio/lyrics line are now merged on one branch, so the sequencing below is historical: the remaining work is verification and deployment, not a further desktop pass. The CSV import UI shipped in 0.4.0's follow-up: **Library ▸ Import from CSV** runs `tools/import_ember_playlist.py` through the bridge (preview, then save), and release installation is covered by the 0.4.0 tag.
 
 ## Recommendation
 Keep the existing Python laptop backend and add SQLite using Python's standard library. The backend becomes the source of truth for Ember-owned playlists. Both Rust desktop and iPhone use authenticated HTTPS over the existing Tailscale /ember address. No YouTube account, playlist upload or provider playlist ownership is needed.
