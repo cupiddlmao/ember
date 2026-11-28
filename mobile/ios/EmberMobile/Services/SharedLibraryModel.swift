@@ -177,6 +177,7 @@ final class SharedLibraryModel: ObservableObject {
         var touched: Set<String> = []
         var conflictAttempts: [String: Int] = [:]
         var ok = true
+        var dropped = false // A mutation left without server acknowledgment.
         while !queue.isEmpty, epoch == ticket {
             let mutation = queue[0]
             touched.insert(mutation.playlistID)
@@ -199,17 +200,21 @@ final class SharedLibraryModel: ObservableObject {
                     // Unmergeable: discard this playlist's queued edits and show
                     // the server's copy rather than overwrite the other device.
                     discardPlaylistQueue(mutation.playlistID)
+                    dropped = true
                     errorMessage = "This playlist changed on another device while you were offline. It was reloaded; apply your remaining edits again."
                 case APIError.server(let status, _, _) where [400, 401, 413, 415].contains(status):
                     queue.removeFirst()
+                    dropped = true
                     persistQueueAfterNetwork(mutation)
                     errorMessage = error.localizedDescription
                 case APIError.server(404, _, _):
                     // The playlist no longer exists; nothing queued against it can apply.
                     discardPlaylistQueue(mutation.playlistID)
+                    dropped = true
                     errorMessage = "That playlist no longer exists on the server. Its queued edits were dropped."
                 case APIError.invalidConfiguration:
                     queue.removeFirst()
+                    dropped = true
                     persistQueueAfterNetwork(mutation)
                     errorMessage = error.localizedDescription
                 default:
@@ -228,7 +233,9 @@ final class SharedLibraryModel: ObservableObject {
                 _ = await load(id)
             }
         }
-        return ok && queue.isEmpty
+        // True only when every queued edit was acknowledged; a dropped edit
+        // (conflict, reject, gone playlist) was never saved on the server.
+        return ok && queue.isEmpty && !dropped
     }
 
     /// A 409 means the server revision moved. Deletes can safely re-issue
